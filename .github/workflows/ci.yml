@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify scripts are executable
+        run: |
+          test -x scripts/attention
+          test -x scripts/jit-context.py

@@ -1,484 +1,67 @@
 #!/bin/bash
-# attention - OpenClaw-native CLI wrapper for attention-layer skill
-#
-# Usage:
-#   attention funnel "intent" <project-path>     # Run 3-layer funnel
-#   attention check-tldr <project-path>          # Validate TLDR.md exists
-#   attention read-tldr <project-path>           # Read TLDR.md
-#   attention init <project-path>                # Create !CONNECTIONS_{repo}.md
-#   attention read-connections <project-path>    # Read CONNECTIONS file
-#   attention status <project-path>              # Show funnel state
-#   attention branch <name> <project-path>       Create a new branch TLDR for parallel work
-#   attention evaluate <project-path>            Run 3-layer funnel to evaluate divergence
-#   attention integrate <project-path>           Merge new idea into current TLDR
-#   attention defer "idea" <project-path>        Park idea in !MAP.md Future section
-#   attention pivot <project-path>               Archive current TLDR, start fresh
-#   attention streams <project-path>             List all active workstreams
-#
-# These commands are also available via Brad:
-#   /attention funnel "task" on <project>
-#   /attention check-tldr <project>
-#   /branch <name> on <project>
-#   /evaluate on <project>
-#   /defer "idea" to <project>
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ATTENTION_STATE_DIR="$HOME/.openclaw/workspace/.attention-state"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
 
 show_help() {
-    cat << EOF
-attention - OpenClaw integration for attention-layer skill
+  cat <<'EOF'
+attention - lean attention layer CLI (v3)
 
 USAGE:
-    attention <command> [args]
+  attention <command> [args]
 
-CORE COMMANDS:
-    funnel "intent" <project-path>       Run 3-layer attention funnel
-    check-tldr <project-path>            Validate TLDR.md exists (gate check)
-    read-tldr <project-path>             Display TLDR.md content
-    init <project-path>                  Create !CONNECTIONS_{repo}.md template
-    read-connections <project-path>      Read CONNECTIONS file
-    status <project-path>                Show funnel state for project
-    list                                 List all tracked projects
-
-ROUTING COMMANDS (Adaptive /Commands):
-    branch <name> <project-path>        Create parallel workstream branch
-    evaluate <project-path>              Evaluate divergence via 3-layer funnel
-    integrate <project-path>             Merge new idea into current stream
-    defer "idea" <project-path>          Park idea in !MAP.md Future section
-    pivot <project-path>                 Archive current, start fresh TLDR
-    streams <project-path>               List all active workstreams
+COMMANDS:
+  init <repo-path>
+  declare-intent <repo-path> --affected-entities ... --deployment-pipeline ... --first-principle-summary ... --requires-new-entity true|false [--task-type code|docs|tests]
+  assemble <repo-path>
+  update-task <repo-path> --status-markdown "..."
+  register-new-entity <repo-path> --id ... --type ... --file-path ... --ci-cd ... --endpoint ... --description ...
+  finalize-change <repo-path> [--tests-command ...] [--tests-result pass|fail|not_run] [--notes ...]
+  clear-task <repo-path>
 
 EXAMPLES:
-    attention funnel "implement auth" ./my-project
-    attention check-tldr ./summon-A2A-academy
-    attention branch websocket-worker ./summon
-    attention evaluate ./summon-A2A-academy
-    attention defer "MCP bridge" ./summon
-    attention status ./summon
-    attention list
-
+  attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
+  attention assemble ~/code/repo
+  attention update-task ~/code/repo --status-markdown "Mapped entities and started auth middleware edits."
 EOF
 }
 
-cmd_funnel() {
-    if [ $# -lt 2 ]; then
-        echo -e "${RED}Error: funnel requires intent and project path${NC}"
-        echo "Usage: attention funnel \"intent\" <project-path>"
-        exit 1
-    fi
-    
-    local intent="$1"
-    local project_path="$(cd "$2" && pwd)"  # Resolve absolute path
-    
-    echo -e "${GREEN}Running attention funnel...${NC}"
-    echo "  Intent: $intent"
-    echo "  Project: $project_path"
-    echo ""
-    
-    python3 "$SCRIPT_DIR/spawn-attention.py" "$intent" "$project_path"
-}
+if [ $# -lt 1 ]; then
+  show_help
+  exit 1
+fi
 
-cmd_check_tldr() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: check-tldr requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    
-    python3 "$SCRIPT_DIR/state-manager.py" check-tldr "$project_path"
-}
+cmd="$1"
+shift
 
-cmd_read_tldr() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: read-tldr requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    
-    python3 "$SCRIPT_DIR/state-manager.py" read-tldr "$project_path"
-}
-
-cmd_init() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: init requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    
-    python3 "$SCRIPT_DIR/state-manager.py" init "$project_path"
-}
-
-cmd_read_connections() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: read-connections requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    
-    python3 "$SCRIPT_DIR/state-manager.py" read "$project_path"
-}
-
-cmd_status() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: status requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    local project_name=$(basename "$project_path")
-    
-    # Generate slug same way as Python script (use openssl for portability)
-    local path_hash=$(echo -n "$project_path" | openssl md5 | awk '{print $2}' | cut -c1-8)
-    local slug="${project_name}-${path_hash}"
-    local state_file="$ATTENTION_STATE_DIR/$slug/funnel-state.json"
-    
-    echo -e "${GREEN}Attention Status for: $project_name${NC}"
-    echo "  Project: $project_path"
-    echo "  Slug: $slug"
-    echo ""
-    
-    if [ -f "$state_file" ]; then
-        echo "  State file: $state_file"
-        echo ""
-        cat "$state_file" | python3 -m json.tool 2>/dev/null || cat "$state_file"
-    else
-        echo -e "${YELLOW}  No funnel state found for this project${NC}"
-        echo "  Run 'attention funnel \"intent\" $1' to create"
-    fi
-}
-
-cmd_list() {
-    echo -e "${GREEN}Tracked Projects:${NC}"
-    echo ""
-    
-    if [ ! -d "$ATTENTION_STATE_DIR" ]; then
-        echo "  No projects tracked yet"
-        exit 0
-    fi
-    
-    for dir in "$ATTENTION_STATE_DIR"/*; do
-        if [ -d "$dir" ]; then
-            local slug=$(basename "$dir")
-            local state_file="$dir/funnel-state.json"
-            
-            if [ -f "$state_file" ]; then
-                local intent=$(cat "$state_file" | python3 -c "import json,sys; print(json.load(sys.stdin).get('intent','N/A'))" 2>/dev/null || echo "N/A")
-                local created=$(cat "$state_file" | python3 -c "import json,sys; print(json.load(sys.stdin).get('created','N/A')[:10])" 2>/dev/null || echo "N/A")
-                echo "  $slug"
-                echo "    Intent: $intent"
-                echo "    Created: $created"
-                echo ""
-            fi
-        fi
-    done
-}
-
-# ========== ROUTING COMMANDS ==========
-
-cmd_branch() {
-    if [ $# -lt 2 ]; then
-        echo -e "${RED}Error: branch requires name and project path${NC}"
-        echo "Usage: attention branch \u003cname\u003e \u003cproject-path\u003e"
-        echo "Example: attention branch websocket-worker ./summon"
-        exit 1
-    fi
-    
-    local branch_name="$1"
-    local project_path="$(cd "$2" && pwd)"
-    local project_name=$(basename "$project_path")
-    
-    echo -e "${GREEN}Creating branch: $branch_name${NC}"
-    echo "  Project: $project_path"
-    echo ""
-    
-    # Create branch TLDR
-    local branch_tldr="$project_path/TLDR_${branch_name}.md"
-    cat > "$branch_tldr" << EOF
-# TLDR_${branch_name} — Branch: $branch_name
-
-**Parent Stream:** $(test -f "$project_path/TLDR.md" && grep "Active Stream" "$project_path/TLDR.md" | cut -d: -f2 | xargs || echo "Unknown")
-**Branch Created:** $(date +%Y-%m-%d)
-**Status:** Exploration
-
-## Intent
-[What this branch explores]
-
-## Why Branch?
-[Divergence from main stream]
-
-## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Decision Points
-- Continue as main? / Integrate? / Abandon?
-
----
-*Branch of: $project_name*
-EOF
-    
-    echo -e "${GREEN}Created branch TLDR:${NC} $branch_tldr"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Edit $branch_tldr with intent and criteria"
-    echo "  2. Run: attention funnel \"describe intent\" $project_path"
-    echo "  3. Work in branch, evaluate at decision points"
-}
-
-cmd_evaluate() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: evaluate requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    local project_name=$(basename "$project_path")
-    
-    echo -e "${GREEN}Running evaluation funnel for: $project_name${NC}"
-    echo ""
-    echo "This will run a 3-layer funnel to evaluate divergence from Active Stream."
-    echo ""
-    
-    # Show current TLDR
-    if [ -f "$project_path/TLDR.md" ]; then
-        echo -e "${YELLOW}Current Active Stream:${NC}"
-        grep -E "Active Stream|Stability" "$project_path/TLDR.md" 2>/dev/null || echo "  (No Active Stream defined)"
-        echo ""
-    fi
-    
-    echo "Run funnel with intent describing the divergent idea."
-    echo "The funnel will analyze fit and present options."
-    echo ""
-    echo "Example intent: \"Evaluate WebSocket approach vs current polling\""
-}
-
-cmd_integrate() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: integrate requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    local tldr_file="$project_path/TLDR.md"
-    
-    echo -e "${GREEN}Integrating new idea into: $(basename "$project_path")${NC}"
-    echo ""
-    
-    if [ ! -f "$tldr_file" ]; then
-        echo -e "${RED}Error: No TLDR.md found${NC}"
-        exit 1
-    fi
-    
-    echo -e "${YELLOW}Current TLDR.md:${NC}"
-    head -20 "$tldr_file"
-    echo ""
-    echo "To integrate:"
-    echo "  1. Edit $tldr_file"
-    echo "  2. Update Active Stream to include new idea"
-    echo "  3. Document how it fits existing work"
-}
-
-cmd_defer() {
-    if [ $# -lt 2 ]; then
-        echo -e "${RED}Error: defer requires idea and project path${NC}"
-        echo "Usage: attention defer \"idea description\" \u003cproject-path\u003e"
-        exit 1
-    fi
-    
-    local idea="$1"
-    local project_path="$(cd "$2" && pwd)"
-    local project_name=$(basename "$project_path")
-    # !MAP files are in projects/ root, not inside project folder
-    local projects_root="$(dirname "$project_path")"
-    local map_file="$projects_root/!MAP_${project_name}.md"
-    
-    echo -e "${GREEN}Deferring idea to Future section${NC}"
-    echo "  Idea: $idea"
-    echo "  Project: $project_name"
-    echo "  !MAP: $map_file"
-    echo ""
-    
-    # Create Future section in !MAP if doesn't exist
-    if [ -f "$map_file" ]; then
-        if ! grep -q "## Future" "$map_file"; then
-            echo "" >> "$map_file"
-            echo "## Future" >> "$map_file"
-            echo "" >> "$map_file"
-            echo "Ideas deferred for later consideration:" >> "$map_file"
-            echo "" >> "$map_file"
-        fi
-        
-        # Add the idea
-        echo "- [$(date +%Y-%m-%d)] $idea" >> "$map_file"
-        echo -e "${GREEN}Added to $map_file Future section${NC}"
-    else
-        echo -e "${YELLOW}Warning: !MAP file not found at $map_file${NC}"
-        echo "Idea logged to console only:"
-        echo "  [$idea]"
-    fi
-}
-
-cmd_pivot() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: pivot requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    local tldr_file="$project_path/TLDR.md"
-    local archive_file="$project_path/TLDR_archive_$(date +%Y%m%d).md"
-    
-    echo -e "${YELLOW}PIVOT: Archiving current TLDR${NC}"
-    echo "  Project: $project_path"
-    echo ""
-    
-    if [ -f "$tldr_file" ]; then
-        # Archive current
-        cp "$tldr_file" "$archive_file"
-        echo -e "${GREEN}Archived to:${NC} $archive_file"
-        
-        # Create fresh TLDR
-        cat > "$tldr_file" << EOF
-# TLDR — $(basename "$project_path")
-
-**Active Stream:** [New direction after pivot]
-**Stability:** [What's known/unknown]
-**Pivot Date:** $(date +%Y-%m-%d)
-
-## New Intent
-[What we're doing now]
-
-## Why Pivot?
-[What changed]
-
-## Open Questions
-- [ ] Question 1
-- [ ] Question 2
-
----
-*Previous direction archived: $archive_file*
-EOF
-        
-        echo -e "${GREEN}Created fresh TLDR.md${NC}"
-        echo ""
-        echo "Edit $tldr_file to define new direction"
-    else
-        echo -e "${YELLOW}No existing TLDR.md to archive${NC}"
-    fi
-}
-
-cmd_streams() {
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}Error: streams requires project path${NC}"
-        exit 1
-    fi
-    
-    local project_path="$(cd "$1" && pwd)"
-    
-    echo -e "${GREEN}Active Workstreams for: $(basename "$project_path")${NC}"
-    echo ""
-    
-    # Main TLDR
-    if [ -f "$project_path/TLDR.md" ]; then
-        echo -e "${GREEN}[MAIN]${NC} TLDR.md"
-        grep "Active Stream" "$project_path/TLDR.md" | head -1 || echo "  (No Active Stream)"
-        echo ""
-    fi
-    
-    # Branch TLDRs
-    local found_branches=0
-    for branch_tldr in "$project_path"/TLDR_*.md; do
-        if [ -f "$branch_tldr" ]; then
-            local branch_name=$(basename "$branch_tldr" | sed 's/TLDR_//' | sed 's/\.md$//')
-            echo -e "${YELLOW}[BRANCH]${NC} $branch_name"
-            grep "Status" "$branch_tldr" | head -1 || echo "  Status: Unknown"
-            found_branches=1
-            echo ""
-        fi
-    done
-    
-    if [ $found_branches -eq 0 ]; then
-        echo "  (No branch TLDRs found)"
-        echo ""
-    fi
-    
-    # Funnel states
-    cmd_status "$1"
-}
-
-# Main dispatch
-case "${1:-}" in
-    funnel)
-        shift
-        cmd_funnel "$@"
-        ;;
-    check-tldr)
-        shift
-        cmd_check_tldr "$@"
-        ;;
-    read-tldr)
-        shift
-        cmd_read_tldr "$@"
-        ;;
-    init)
-        shift
-        cmd_init "$@"
-        ;;
-    read-connections)
-        shift
-        cmd_read_connections "$@"
-        ;;
-    status)
-        shift
-        cmd_status "$@"
-        ;;
-    list)
-        cmd_list
-        ;;
-    # Routing commands
-    branch)
-        shift
-        cmd_branch "$@"
-        ;;
-    evaluate)
-        shift
-        cmd_evaluate "$@"
-        ;;
-    integrate)
-        shift
-        cmd_integrate "$@"
-        ;;
-    defer)
-        shift
-        cmd_defer "$@"
-        ;;
-    pivot)
-        shift
-        cmd_pivot "$@"
-        ;;
-    streams)
-        shift
-        cmd_streams "$@"
-        ;;
-    help|--help|-h)
-        show_help
-        ;;
-    *)
-        echo -e "${RED}Unknown command: ${1:-}${NC}"
-        show_help
-        exit 1
-        ;;
+case "$cmd" in
+  init)
+    python3 "$SCRIPT_DIR/jit-context.py" init "$@"
+    ;;
+  declare-intent)
+    python3 "$SCRIPT_DIR/jit-context.py" declare-intent "$@"
+    ;;
+  assemble)
+    python3 "$SCRIPT_DIR/jit-context.py" assemble "$@"
+    ;;
+  update-task)
+    python3 "$SCRIPT_DIR/jit-context.py" update-task "$@"
+    ;;
+  register-new-entity)
+    python3 "$SCRIPT_DIR/jit-context.py" register-new-entity "$@"
+    ;;
+  finalize-change)
+    python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$@"
+    ;;
+  clear-task)
+    python3 "$SCRIPT_DIR/jit-context.py" clear-task "$@"
+    ;;
+  -h|--help|help)
+    show_help
+    ;;
+  *)
+    echo "Unknown command: $cmd"
+    echo "Run: attention --help"
+    exit 1
+    ;;
 esac
