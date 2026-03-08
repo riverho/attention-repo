@@ -2,27 +2,22 @@
   "$schema": "attention-layer-config-v1",
   "skill_root": ".",
   "project_registry": {
-    "summon-A2A-academy": {
-      "canonical_path": "/Users/river/.openclaw/workspace/projects/summon-A2A-academy",
-      "git_remote": "https://github.com/openclaw/summon-A2A-academy.git",
-      "source_strategy": "local_only",
-      "entity_resolution": {
-        "!MAP.md": "${canonical_path}/!MAP.md",
-        "runtime_truth": "https://summon-academy-factory.shape02174.workers.dev"
-      }
-    },
-    "attention-layer": {
-      "canonical_path": "/Users/river/.openclaw/workspace/skills/attention-layer",
-      "git_remote": null,
+    "my-project": {
+      "canonical_path": "/path/to/your/project",
+      "git_remote": "https://github.com/yourusername/your-project.git",
       "source_strategy": "local_only",
       "entity_resolution": {
         "!MAP.md": "${canonical_path}/!MAP.md"
       }
+    },
+    "another-project": {
+      "canonical_path": "/path/to/another/project",
+      "source_strategy": "local_only"
     }
   },
   "path_resolution": {
     "order": ["canonical_path", "workspace_projects", "git_clone"],
-    "workspace_projects_root": "/Users/river/.openclaw/workspace/projects",
+    "workspace_projects_root": "/path/to/your/workspace/projects",
     "fallback_behavior": "fail_with_config_hint"
   },
   "model_usage": {

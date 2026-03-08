@@ -1,4 +1,12 @@
 .attention/
+attention-config.json
 
 NEXT_STEPS_UNTESTED.md
 __pycache__/
+
+# Agent-specific files (may contain personal context)
+*AGENT*.md
+CLAUDE.md
+
+# OS files
+.DS_Store
