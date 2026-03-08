@@ -16,13 +16,16 @@ COMMANDS:
   assemble <repo-path>
   update-task <repo-path> --status-markdown "..."
   register-new-entity <repo-path> --id ... --type ... --file-path ... --ci-cd ... --endpoint ... --description ...
+  map-freshness-check <repo-path> [--no-change-justification "..."]
   finalize-change <repo-path> [--tests-command ...] [--tests-result pass|fail|not_run] [--notes ...]
   clear-task <repo-path>
+  sync-state <repo-path> [--version X.Y.Z] [--description "..."]
 
 EXAMPLES:
   attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
   attention assemble ~/code/repo
   attention update-task ~/code/repo --status-markdown "Mapped entities and started auth middleware edits."
+  attention sync-state . --version 3.2.4 --description "Menu-first UX with Telegram inline keyboards"
 EOF
 }
 
@@ -50,11 +53,17 @@ case "$cmd" in
   register-new-entity)
     python3 "$SCRIPT_DIR/jit-context.py" register-new-entity "$@"
     ;;
+  map-freshness-check)
+    python3 "$SCRIPT_DIR/jit-context.py" map-freshness-check "$@"
+    ;;
   finalize-change)
     python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$@"
     ;;
   clear-task)
     python3 "$SCRIPT_DIR/jit-context.py" clear-task "$@"
+    ;;
+  sync-state)
+    python3 "$SCRIPT_DIR/jit-context.py" sync-state "$@"
     ;;
   -h|--help|help)
     show_help

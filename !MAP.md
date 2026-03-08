@@ -21,6 +21,12 @@ Lean attention-layer skill for first-principles, CI/CD-aware context assembly.
 - **L3 (Operational):** CI/CD files injected per entity, finalize report required.
 - **L4 (Production):** branch protections + tests + deployment verifications enforced.
 
+## Operational Snapshot
+- **Version:** 3.2.4
+- **Last Sync:** 2026-03-08T06:45:47.446944+00:00
+- **Description:** Comprehensive documentation for OpenClaw community with Telegram integration and AO flow guides
+- **Status:** Operational
+
 ## Entity Registry
 <!-- ENTITY_REGISTRY_START -->
 {

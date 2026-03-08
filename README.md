@@ -50,6 +50,12 @@ scripts/attention finalize-change /path/to/repo \
   --notes "Ready for review"
 ```
 
+## Map freshness requirement (v3.1 adjustment)
+- Before `finalize-change`, verify `!MAP.md` is current for all affected entities.
+- If responsibilities/endpoints changed, update entity metadata in `!MAP.md` in the same change set.
+- If no map changes are needed, record a short no-change justification in `CURRENT_TASK.md` or finalize notes.
+- Root-cause reference: `ROOT_CAUSE_MAP_STALENESS.md`.
+
 ## Optional: register a new entity
 Only when you declared `--requires-new-entity true`:
 

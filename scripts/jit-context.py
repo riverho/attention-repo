@@ -7,9 +7,21 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# Add scripts dir to path for resolver
+_SCRIPT_DIR = Path(__file__).parent
+sys.path.insert(0, str(_SCRIPT_DIR))
+
+try:
+    from resolve import load_config, resolve_project_path, get_entity_resolution_path
+except ImportError as _e:
+    resolve_project_path = None
+    load_config = None
+    get_entity_resolution_path = None
 
 ENTITY_START = "<!-- ENTITY_REGISTRY_START -->"
 ENTITY_END = "<!-- ENTITY_REGISTRY_END -->"
@@ -38,6 +50,36 @@ def run_git(repo: Path, *args: str) -> str:
         return out.decode("utf-8").strip()
     except subprocess.CalledProcessError as exc:
         return f"<git command failed: {' '.join(args)}>\n{exc.output.decode('utf-8', errors='replace').strip()}"
+
+
+def resolve_repo(repo_arg: str) -> Path:
+    """Resolve repo argument: project name via config, or direct path."""
+    # First try as path
+    path = Path(repo_arg).expanduser()
+    if path.exists():
+        return path.resolve()
+
+    # Try as registered project name
+    if resolve_project_path is not None:
+        try:
+            return resolve_project_path(repo_arg)
+        except (ValueError, RuntimeError, FileNotFoundError):
+            pass  # Fall through to error
+
+    # Neither worked
+    registered = "resolver unavailable"
+    if resolve_project_path is not None:
+        try:
+            from resolve import list_registered_projects
+            registered = list_registered_projects()
+        except Exception:
+            pass
+
+    raise ValueError(
+        f"Cannot resolve: {repo_arg}\n"
+        f"Not a valid path, and not a registered project.\n"
+        f"Registered projects: {registered}"
+    )
 
 
 def parse_bool(raw: str) -> bool:
@@ -207,7 +249,7 @@ def validate_declaration(
 
 
 def cmd_declare_intent(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+    repo = resolve_repo(args.repo)
     affected_entities = split_entities(args.affected_entities)
     requires_new_entity = parse_bool(args.requires_new_entity)
 
@@ -287,7 +329,7 @@ def build_injected_context(repo: Path, declaration: dict[str, Any]) -> str:
 
 
 def cmd_assemble(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+    repo = resolve_repo(args.repo)
     declaration = load_declaration(repo)
 
     map_text = read_text(repo / "!MAP.md").strip() or "<missing !MAP.md>"
@@ -328,7 +370,7 @@ def cmd_assemble(args: argparse.Namespace) -> None:
 
 
 def cmd_update_task(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+    repo = resolve_repo(args.repo)
     status = args.status_markdown.strip()
     if not status:
         raise ValueError("status_markdown cannot be empty")
@@ -350,7 +392,7 @@ def cmd_update_task(args: argparse.Namespace) -> None:
 
 
 def cmd_register_new_entity(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+    repo = resolve_repo(args.repo)
     declaration = load_declaration(repo)
     if not declaration.get("requires_new_entity"):
         raise ValueError("register-new-entity is only allowed when requires_new_entity=true")
@@ -381,9 +423,82 @@ def cmd_register_new_entity(args: argparse.Namespace) -> None:
     print(f"Registered new entity in {map_path}: {args.id}")
 
 
-def cmd_finalize_change(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+def cmd_map_freshness_check(args: argparse.Namespace) -> None:
+    """Verify !MAP.md entity metadata matches actual implementation."""
+    repo = resolve_repo(args.repo)
     declaration = load_declaration(repo)
+    entity_map = get_entity_map(repo)
+
+    affected = declaration.get("affected_entities", [])
+    issues = []
+    verified = []
+
+    for eid in affected:
+        entity = entity_map.get(eid)
+        if not entity:
+            issues.append(f"Entity {eid}: not found in !MAP.md")
+            continue
+
+        # Check file_path exists
+        fp = entity.get("file_path")
+        if fp:
+            full_path = repo / fp
+            if not full_path.exists():
+                issues.append(f"Entity {eid}: file_path '{fp}' does not exist")
+            else:
+                verified.append(f"Entity {eid}: file_path '{fp}' exists")
+
+        # Check ci_cd pipeline exists
+        cicd = entity.get("ci_cd")
+        if cicd:
+            cicd_path = repo / cicd
+            if not cicd_path.exists():
+                issues.append(f"Entity {eid}: ci_cd '{cicd}' does not exist")
+            else:
+                verified.append(f"Entity {eid}: ci_cd '{cicd}' exists")
+
+    # Load or create freshness record
+    freshness_path = repo / ATTN_DIR / "map_freshness.json"
+    record = {"checked_at": utc_now(), "affected_entities": affected, "issues": issues, "verified": verified}
+
+    if args.no_change_justification:
+        record["no_change_justification"] = args.no_change_justification
+    elif issues:
+        record["status"] = "BLOCKED"
+        write_text(freshness_path, json.dumps(record, indent=2) + "\n")
+        print(f"Map freshness check BLOCKED: {len(issues)} issues found")
+        for i in issues:
+            print(f"  - {i}")
+        raise SystemExit(1)
+    else:
+        record["status"] = "PASS"
+
+    write_text(freshness_path, json.dumps(record, indent=2) + "\n")
+    print(f"Map freshness check PASSED: {len(verified)} items verified")
+    for v in verified:
+        print(f"  - {v}")
+
+    if args.no_change_justification:
+        print(f"No-change justification: {args.no_change_justification}")
+
+
+def cmd_finalize_change(args: argparse.Namespace) -> None:
+    repo = resolve_repo(args.repo)
+    declaration = load_declaration(repo)
+
+    # Enforce map-freshness-check ran
+    freshness_path = repo / ATTN_DIR / "map_freshness.json"
+    if not freshness_path.exists():
+        print("ERROR: Map freshness check not performed.")
+        print("Run: attention map-freshness-check <repo> [--no-change-justification '...']")
+        raise SystemExit(1)
+
+    freshness = json.loads(freshness_path.read_text(encoding="utf-8"))
+    if freshness.get("status") != "PASS" and not freshness.get("no_change_justification"):
+        print("ERROR: Map freshness check did not pass.")
+        print(f"Issues: {freshness.get('issues', [])}")
+        raise SystemExit(1)
+
     changed = run_git(repo, "status", "-s")
     short_head = run_git(repo, "rev-parse", "--short", "HEAD")
 
@@ -395,6 +510,15 @@ def cmd_finalize_change(args: argparse.Namespace) -> None:
         f"- Pipeline: {declaration.get('deployment_pipeline')}\n"
         f"- First Principle: {declaration.get('first_principle_summary')}\n"
         f"- Requires New Entity: {declaration.get('requires_new_entity')}\n\n"
+        "## Map Freshness\n"
+        f"- Status: {freshness.get('status')}\n"
+        f"- Checked At: {freshness.get('checked_at')}\n"
+        f"- Verified: {len(freshness.get('verified', []))} items\n"
+    )
+    if freshness.get("no_change_justification"):
+        report += f"- No-Change Justification: {freshness.get('no_change_justification')}\n"
+    report += (
+        f"- Issues: {len(freshness.get('issues', []))}\n\n"
         "## Validation\n"
         f"- Tests Command: {args.tests_command}\n"
         f"- Tests Result: {args.tests_result}\n"
@@ -410,9 +534,88 @@ def cmd_finalize_change(args: argparse.Namespace) -> None:
 
 
 def cmd_clear_task(args: argparse.Namespace) -> None:
-    repo = Path(args.repo).expanduser().resolve()
+    repo = resolve_repo(args.repo)
     write_text(repo / "CURRENT_TASK.md", "# CURRENT_TASK.md\n\n")
     print(f"Cleared: {repo / 'CURRENT_TASK.md'}")
+
+
+def cmd_sync_state(args: argparse.Namespace) -> None:
+    """Sync !MAP.md, CURRENT_TASK.md, and index with timestamps and version."""
+    repo = resolve_repo(args.repo)
+    now = utc_now()
+    version = args.version or "3.2.4"
+    description = args.description or "Synced state"
+    
+    # 1. Update !MAP.md with operational snapshot
+    map_path = repo / "!MAP.md"
+    map_text = read_text(map_path)
+    
+    # Add or update Operational Snapshot section
+    snapshot_section = f"""## Operational Snapshot
+- **Version:** {version}
+- **Last Sync:** {now}
+- **Description:** {description}
+- **Status:** Operational
+"""
+    
+    if "## Operational Snapshot" in map_text:
+        # Replace existing section
+        map_text = re.sub(
+            r"## Operational Snapshot.*?(?=\n## |\Z)",
+            snapshot_section.strip() + "\n",
+            map_text,
+            flags=re.DOTALL
+        )
+    else:
+        # Add before Entity Registry
+        map_text = map_text.replace("## Entity Registry", snapshot_section + "\n## Entity Registry")
+    
+    write_text(map_path, map_text)
+    print(f"Updated: {map_path}")
+    
+    # 2. Update CURRENT_TASK.md with timestamp
+    task_path = repo / "CURRENT_TASK.md"
+    task_text = read_text(task_path)
+    
+    # Add sync marker at top
+    sync_line = f"<!-- Last synced: {now} | Version: {version} -->\n"
+    if task_text.startswith("<!-- Last synced:"):
+        # Replace existing sync line
+        task_text = re.sub(r"<!-- Last synced:.*?-->\n", sync_line, task_text)
+    else:
+        task_text = sync_line + task_text
+    
+    write_text(task_path, task_text)
+    print(f"Updated: {task_path}")
+    
+    # 3. Update index.json
+    index_path = repo / ATTN_DIR / "index.json"
+    index = {}
+    if index_path.exists():
+        try:
+            index = json.loads(read_text(index_path))
+        except json.JSONDecodeError:
+            pass
+    
+    index["version"] = version
+    index["last_synced"] = now
+    index["last_updated"] = now
+    
+    # Record sync operation
+    if "sync_history" not in index:
+        index["sync_history"] = []
+    index["sync_history"].append({
+        "timestamp": now,
+        "version": version,
+        "description": description
+    })
+    # Keep only last 10 syncs
+    index["sync_history"] = index["sync_history"][-10:]
+    
+    write_text(index_path, json.dumps(index, indent=2, default=str))
+    print(f"Updated: {index_path}")
+    
+    print(f"\n✅ Sync complete: v{version} at {now}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -452,8 +655,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_fin.add_argument("--tests-result", choices=["pass", "fail", "not_run"], default="not_run")
     p_fin.add_argument("--notes", default="none")
 
+    p_fresh = sub.add_parser("map-freshness-check", help="Verify !MAP.md entity metadata matches implementation")
+    p_fresh.add_argument("repo")
+    p_fresh.add_argument("--no-change-justification", default="", help="Justification if !MAP.md update not needed")
+
     p_clear = sub.add_parser("clear-task", help="Clear CURRENT_TASK.md")
     p_clear.add_argument("repo")
+
+    p_sync = sub.add_parser("sync-state", help="Sync !MAP.md, CURRENT_TASK.md, and index with timestamps")
+    p_sync.add_argument("repo")
+    p_sync.add_argument("--version", default="3.2.4", help="Version to record")
+    p_sync.add_argument("--description", default="", help="Description of current state")
 
     return parser
 
@@ -463,7 +675,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "init":
-        repo = Path(args.repo).expanduser().resolve()
+        repo = resolve_repo(args.repo)
         ensure_templates(repo)
         print(f"Initialized: {repo / '!MAP.md'}")
         print(f"Initialized: {repo / 'CURRENT_TASK.md'}")
@@ -485,12 +697,20 @@ def main() -> None:
         cmd_register_new_entity(args)
         return
 
+    if args.command == "map-freshness-check":
+        cmd_map_freshness_check(args)
+        return
+
     if args.command == "finalize-change":
         cmd_finalize_change(args)
         return
 
     if args.command == "clear-task":
         cmd_clear_task(args)
+        return
+
+    if args.command == "sync-state":
+        cmd_sync_state(args)
         return
 
     raise RuntimeError(f"Unsupported command: {args.command}")
