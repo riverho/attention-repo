@@ -15,3 +15,6 @@ jobs:
         run: |
           test -x scripts/attention
           test -x scripts/jit-context.py
+      - name: Run router regression tests
+        run: |
+          python3 -m unittest discover -s tests -p "test_*.py"

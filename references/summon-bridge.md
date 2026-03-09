@@ -1,4 +1,4 @@
-# Summon Integration (Lean v3)
+# Summon Integration (Attention-layer v0.3.0)
 
 Use one autonomous engineer session with an explicit declaration gate.
 

@@ -1,4 +1,10 @@
-# Attention Layer (Lean v3.2.4)
+---
+name: attention_layer
+description: First-principles, CI/CD-entity aware attention layer with mandatory architectural intent declaration
+user-invocable: true
+---
+
+# Attention Layer (v0.3.0)
 
 **First-principles, CI/CD-entity aware attention layer with mandatory architectural intent declaration.**
 
@@ -10,7 +16,7 @@
 
 ```bash
 # Install (as OpenClaw skill)
-git clone https://github.com/openclaw/attention-layer ~/.openclaw/skills/attention-layer
+git clone https://github.com/openclaw/attention_layer ~/.openclaw/skills/attention_layer
 
 # Register your project
 echo '{
@@ -20,11 +26,11 @@ echo '{
       "source_strategy": "local_only"
     }
   }
-}' > ~/.openclaw/skills/attention-layer/attention-config.json
+}' > ~/.openclaw/skills/attention_layer/attention-config.json
 
 # Start using
-/attention                    # Main menu
-/attention assemble my-project
+/attention_layer                    # Main menu
+/attention_layer assemble my-project
 ```
 
 ---
@@ -87,10 +93,10 @@ Persistent index tracking:
 
 ### Main Menu (Telegram)
 
-Type `/attention` to see:
+Type `/attention_layer` to see:
 
 ```
-*Attention Layer* — v3.2.4
+*Attention Layer* — v0.3.0
 
 Index updated: 2026-03-08
 Registered: 2 project(s)
@@ -100,7 +106,7 @@ Registered: 2 project(s)
 [▶️ Declare]   [🏁 Finalize]
 ```
 
-**Telegram Note:** Bot commands convert dashes to underscores. Both `/attention-layer` and `/attention_layer` work.
+**Telegram:** Use `/attention_layer` (underscore is canonical)
 
 ---
 
@@ -144,7 +150,7 @@ attention finalize-change <repo> \
 
 # Sync all state files (!MAP.md, CURRENT_TASK.md, index.json)
 attention sync-state <repo> \
-  --version 3.2.4 \
+  --version 0.3.0 \
   --description "Menu-first UX with Telegram integration"
 
 # Clear task file
@@ -181,7 +187,7 @@ attention clear-task <repo>
 | **Inline Keyboards** | 2-column button layout for compact menus |
 | **Callback Handling** | Button clicks route back to service router |
 | **Session Persistence** | Multi-turn conversations work across messages |
-| **Command Normalization** | `/attention-layer` → `/attention_layer` both work |
+| **Command Normalization** | `/attention_layer` → `/attention_layer` both work |
 | **Staleness Indicators** | 🔴 for stale, 🟢/✅/⚪ for status |
 
 ### Telegram Flow
@@ -283,7 +289,7 @@ on_heartbeat:
 
 ```json
 {
-  "$schema": "attention-layer-config-v1",
+  "$schema": "attention_layer-config-v1",
   "project_registry": {
     "my-api": {
       "canonical_path": "/Users/me/projects/my-api",
@@ -371,7 +377,7 @@ attention map-freshness-check <repo> --no-change-justification "Legacy shim unch
 ### Telegram buttons not appearing
 - Check `ATTENTION_TELEGRAM_BOT_TOKEN` is set
 - Verify bot has inline keyboard permissions
-- Try both `/attention-layer` and `/attention_layer`
+- Try both `/attention_layer` and `/attention_layer`
 
 ### Index out of sync
 ```bash
@@ -394,7 +400,7 @@ attention sync-state <repo> --version $(git describe --tags) --description "Manu
 
 ## Contributing
 
-1. Fork `openclaw/attention-layer`
+1. Fork `openclaw/attention_layer`
 2. Create feature branch
 3. Run `attention declare-intent` before changes
 4. Implement + test

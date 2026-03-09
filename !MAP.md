@@ -1,13 +1,13 @@
 # !MAP.md
 
 ## Purpose
-Lean attention-layer skill for first-principles, CI/CD-aware context assembly.
+Lean attention_layer skill for first-principles, CI/CD-aware context assembly.
 
 ## Core Commands
-- `scripts/attention declare-intent <repo> ...`
-- `scripts/attention assemble <repo>`
-- `scripts/attention update-task <repo> --status-markdown "..."`
-- `scripts/attention finalize-change <repo> ...`
+- `scripts/attention start <repo> [task...]`
+- `scripts/attention init`
+- `scripts/attention wrap <repo>`
+- Internal workflow commands remain available in `scripts/jit-context.py` for low-level repair and debugging.
 
 ## Architecture Boundaries
 - No background scanners or cron automation.
@@ -22,9 +22,9 @@ Lean attention-layer skill for first-principles, CI/CD-aware context assembly.
 - **L4 (Production):** branch protections + tests + deployment verifications enforced.
 
 ## Operational Snapshot
-- **Version:** 3.2.4
-- **Last Sync:** 2026-03-08T06:45:47.446944+00:00
-- **Description:** Comprehensive documentation for OpenClaw community with Telegram integration and AO flow guides
+- **Version:** 0.3.0
+- **Last Sync:** 2026-03-09T04:19:49.803292+00:00
+- **Description:** Wrap-up sync via attention CLI
 - **Status:** Operational
 
 ## Entity Registry
@@ -46,6 +46,14 @@ Lean attention-layer skill for first-principles, CI/CD-aware context assembly.
       "ci_cd": ".github/workflows/ci.yml",
       "endpoint": "local context assembly runtime",
       "description": "First-principles gate and CI/CD context injector"
+    },
+    {
+      "id": "E-ATTN-PLUGIN-01",
+      "type": "Plugin",
+      "file_path": "openclaw-plugin/attention-layer-telegram/index.ts",
+      "ci_cd": ".github/workflows/ci.yml",
+      "endpoint": "/attention_layer",
+      "description": "OpenClaw plugin bridge that owns Telegram /attention_layer and routes inline callbacks through service_router."
     }
   ]
 }

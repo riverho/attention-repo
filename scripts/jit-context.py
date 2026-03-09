@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lean v3 attention engine: first-principles + CI/CD entity mapping gate."""
+"""Attention engine v0.3.0: first-principles + CI/CD entity mapping gate."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,11 +18,35 @@ _SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 try:
-    from resolve import load_config, resolve_project_path, get_entity_resolution_path
+    from resolve import (
+        build_default_config,
+        central_config_exists,
+        detect_project_candidates,
+        get_config_path,
+        get_entity_resolution_path,
+        get_index_path,
+        load_config,
+        record_project_operation,
+        register_project,
+        reindex_registered_projects,
+        resolve_project_name_from_path,
+        resolve_project_path,
+        save_config,
+    )
 except ImportError as _e:
     resolve_project_path = None
     load_config = None
     get_entity_resolution_path = None
+    build_default_config = None
+    central_config_exists = None
+    detect_project_candidates = None
+    get_config_path = None
+    get_index_path = None
+    record_project_operation = None
+    register_project = None
+    reindex_registered_projects = None
+    resolve_project_name_from_path = None
+    save_config = None
 
 ENTITY_START = "<!-- ENTITY_REGISTRY_START -->"
 ENTITY_END = "<!-- ENTITY_REGISTRY_END -->"
@@ -186,6 +211,17 @@ Describe the current task.
         )
 
 
+def resolved_project_name(repo: Path) -> str:
+    if resolve_project_name_from_path is not None:
+        try:
+            resolved = resolve_project_name_from_path(repo)
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+    return repo.name
+
+
 def declaration_path(repo: Path) -> Path:
     return repo / ATTN_DIR / DECLARATION_FILE
 
@@ -273,6 +309,13 @@ def cmd_declare_intent(args: argparse.Namespace) -> None:
 
     out = declaration_path(repo)
     write_text(out, json.dumps(payload, indent=2) + "\n")
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "declare-intent",
+            extra={"status": "active"},
+        )
     print(f"Declared architectural intent: {out}")
 
 
@@ -366,6 +409,8 @@ def cmd_assemble(args: argparse.Namespace) -> None:
         "- finalize_change\n"
     )
 
+    if record_project_operation is not None:
+        record_project_operation(resolved_project_name(repo), repo, "assemble")
     print(payload)
 
 
@@ -388,6 +433,13 @@ def cmd_update_task(args: argparse.Namespace) -> None:
         f"## Updated\n{utc_now()}\n"
     )
     write_text(repo / "CURRENT_TASK.md", text)
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "update-task",
+            extra={"status": "active"},
+        )
     print(f"Updated: {repo / 'CURRENT_TASK.md'}")
 
 
@@ -474,6 +526,8 @@ def cmd_map_freshness_check(args: argparse.Namespace) -> None:
         record["status"] = "PASS"
 
     write_text(freshness_path, json.dumps(record, indent=2) + "\n")
+    if record_project_operation is not None:
+        record_project_operation(resolved_project_name(repo), repo, "freshness")
     print(f"Map freshness check PASSED: {len(verified)} items verified")
     for v in verified:
         print(f"  - {v}")
@@ -530,12 +584,26 @@ def cmd_finalize_change(args: argparse.Namespace) -> None:
 
     out = repo / ATTN_DIR / "ATTENTION_FINALIZE.md"
     write_text(out, report)
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "finalize-change",
+            extra={"status": "completed"},
+        )
     print(f"Wrote finalize report: {out}")
 
 
 def cmd_clear_task(args: argparse.Namespace) -> None:
     repo = resolve_repo(args.repo)
     write_text(repo / "CURRENT_TASK.md", "# CURRENT_TASK.md\n\n")
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "clear-task",
+            extra={"status": "idle", "task_summary": ""},
+        )
     print(f"Cleared: {repo / 'CURRENT_TASK.md'}")
 
 
@@ -543,7 +611,7 @@ def cmd_sync_state(args: argparse.Namespace) -> None:
     """Sync !MAP.md, CURRENT_TASK.md, and index with timestamps and version."""
     repo = resolve_repo(args.repo)
     now = utc_now()
-    version = args.version or "3.2.4"
+    version = args.version or "0.3.0"
     description = args.description or "Synced state"
     
     # 1. Update !MAP.md with operational snapshot
@@ -614,16 +682,133 @@ def cmd_sync_state(args: argparse.Namespace) -> None:
     
     write_text(index_path, json.dumps(index, indent=2, default=str))
     print(f"Updated: {index_path}")
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "sync-state",
+            extra={"status": "idle"},
+        )
     
     print(f"\n✅ Sync complete: v{version} at {now}")
 
 
+def _format_candidate_report(candidates: list[dict[str, Any]], title: str) -> str:
+    counts = Counter(candidate["classification"] for candidate in candidates)
+    lines = [title]
+    lines.append(f"Candidates: {len(candidates)}")
+    for key in ("ready", "partial", "uninitialized"):
+        lines.append(f"- {key}: {counts.get(key, 0)}")
+    if not candidates:
+        return "\n".join(lines)
+    lines.append("")
+    for candidate in candidates:
+        markers = ",".join(candidate["markers"])
+        lines.append(
+            f"- {candidate['name']} [{candidate['scope']}] "
+            f"{candidate['classification']} registered={candidate['registered']} markers={markers}"
+        )
+    return "\n".join(lines)
+
+
+def cmd_init_config(args: argparse.Namespace) -> None:
+    if build_default_config is None or save_config is None or get_config_path is None:
+        raise RuntimeError("Central config helpers are unavailable.")
+    path = get_config_path()
+    if path.exists() and not args.force:
+        raise ValueError(f"Config already exists: {path}. Use --force to overwrite.")
+    config = build_default_config()
+    save_config(config, path)
+    if get_index_path is not None:
+        get_index_path().parent.mkdir(parents=True, exist_ok=True)
+    print(f"Initialized config: {path}")
+
+
+def _ensure_control_plane(create_if_missing: bool = True) -> dict[str, Any]:
+    if build_default_config is None or save_config is None:
+        raise RuntimeError("Central config helpers are unavailable.")
+    if central_config_exists is not None and central_config_exists():
+        return load_config()
+    if not create_if_missing:
+        return build_default_config()
+    config = build_default_config()
+    save_config(config)
+    return config
+
+
+def cmd_init_workspace(args: argparse.Namespace) -> None:
+    if detect_project_candidates is None or register_project is None or reindex_registered_projects is None:
+        raise RuntimeError("Workspace init helpers are unavailable.")
+    config = _ensure_control_plane(create_if_missing=not args.dry_run)
+    candidates = detect_project_candidates(
+        config,
+        include_skills=args.include_skills,
+        include_plugins=args.include_plugins,
+    )
+    if args.dry_run:
+        print(_format_candidate_report(candidates, "Attention-layer init dry run"))
+        if get_config_path is not None:
+            print(f"\nConfig path: {get_config_path()}")
+        if get_index_path is not None:
+            print(f"Index path: {get_index_path()}")
+        return
+
+    for candidate in candidates:
+        register_project(
+            config,
+            candidate["name"],
+            candidate["canonical_path"],
+            source=candidate["scope"],
+            managed=True,
+        )
+        ensure_templates(Path(candidate["canonical_path"]))
+
+    config_path = save_config(config)
+    index_path = reindex_registered_projects(config)
+    print(_format_candidate_report(candidates, "Attention-layer init complete"))
+    print(f"\nUpdated config: {config_path}")
+    print(f"Updated index: {index_path}")
+
+
+def cmd_repair(args: argparse.Namespace) -> None:
+    config = load_config()
+    repaired = []
+    for name, entry in config.get("projects", {}).items():
+        repo = resolve_project_path(name, config)
+        before_map = (repo / "!MAP.md").exists()
+        before_task = (repo / "CURRENT_TASK.md").exists()
+        ensure_templates(repo)
+        after_map = (repo / "!MAP.md").exists()
+        after_task = (repo / "CURRENT_TASK.md").exists()
+        if (not before_map and after_map) or (not before_task and after_task):
+            repaired.append(name)
+        if record_project_operation is not None:
+            record_project_operation(name, repo, "repair")
+    index_path = reindex_registered_projects(config)
+    print(f"Repair complete. Projects touched: {len(repaired)}")
+    for name in repaired:
+        print(f"- {name}")
+    print(f"Updated index: {index_path}")
+
+
+def cmd_reindex(args: argparse.Namespace) -> None:
+    config = load_config()
+    index_path = reindex_registered_projects(config)
+    print(f"Reindexed {len(config.get('projects', {}))} project(s): {index_path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Lean v3 JIT context assembler")
+    parser = argparse.ArgumentParser(description="Attention-layer JIT context assembler (v0.3.0)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init = sub.add_parser("init", help="Create !MAP.md and CURRENT_TASK.md templates")
-    p_init.add_argument("repo")
+    p_init_cfg = sub.add_parser("init-config", help="Create central attention-layer config")
+    p_init_cfg.add_argument("--force", action="store_true", help="Overwrite existing config")
+
+    p_init = sub.add_parser("init", help="Initialize projects and central index")
+    p_init.add_argument("repo", nargs="?", help="Optional direct project path for legacy per-repo init")
+    p_init.add_argument("--include-skills", action="store_true", help="Include workspace skills when scanning")
+    p_init.add_argument("--include-plugins", action="store_true", help="Include plugin roots when scanning")
+    p_init.add_argument("--dry-run", action="store_true", help="Report candidate projects without writing files")
 
     p_decl = sub.add_parser("declare-intent", help="Declare architectural intent before edits")
     p_decl.add_argument("repo")
@@ -664,8 +849,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sync = sub.add_parser("sync-state", help="Sync !MAP.md, CURRENT_TASK.md, and index with timestamps")
     p_sync.add_argument("repo")
-    p_sync.add_argument("--version", default="3.2.4", help="Version to record")
+    p_sync.add_argument("--version", default="0.3.0", help="Version to record")
     p_sync.add_argument("--description", default="", help="Description of current state")
+
+    p_repair = sub.add_parser("repair", help="Backfill missing project files for registered projects")
+
+    p_reindex = sub.add_parser("reindex", help="Refresh the central attention-layer index")
 
     return parser
 
@@ -674,11 +863,18 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    if args.command == "init-config":
+        cmd_init_config(args)
+        return
+
     if args.command == "init":
-        repo = resolve_repo(args.repo)
-        ensure_templates(repo)
-        print(f"Initialized: {repo / '!MAP.md'}")
-        print(f"Initialized: {repo / 'CURRENT_TASK.md'}")
+        if args.repo:
+            repo = resolve_repo(args.repo)
+            ensure_templates(repo)
+            print(f"Initialized: {repo / '!MAP.md'}")
+            print(f"Initialized: {repo / 'CURRENT_TASK.md'}")
+            return
+        cmd_init_workspace(args)
         return
 
     if args.command == "declare-intent":
@@ -711,6 +907,14 @@ def main() -> None:
 
     if args.command == "sync-state":
         cmd_sync_state(args)
+        return
+
+    if args.command == "repair":
+        cmd_repair(args)
+        return
+
+    if args.command == "reindex":
+        cmd_reindex(args)
         return
 
     raise RuntimeError(f"Unsupported command: {args.command}")

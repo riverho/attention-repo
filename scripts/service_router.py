@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Service-aware router for attention-layer skill (v3.2.4).
+Service-aware router for attention_layer skill (v0.3.0).
 
 This is the core routing engine that connects user input (from Telegram, 
-WhatsApp, TUI, or CLI) to the attention-layer CLI commands. It provides:
+WhatsApp, TUI, or CLI) to the attention_layer CLI commands. It provides:
 
 1. Natural language intent detection
 2. Session-based conversation flow (for multi-turn interactions)
@@ -15,24 +15,24 @@ Architecture:
 User Input → service_router.py → attention CLI → Response
                 ↓
          Session State (in-memory)
-         Persistent Index (.attention/index.json)
+         Persistent Index (~/.openclaw/attention-layer/index.json)
 
 Telegram Flow:
 -------------
-/attention → format_main_menu() → Inline keyboard with 6 actions
+/attention_layer → format_main_menu() → Inline keyboard with 3 actions
     ↓
-[Click action] → Project selector
+[Click Projects] → Project selector
     ↓
-[Click project] → Confirmation dialog
+[Click project] → Start flow with latest task summary
     ↓
-[Confirm] → execute_intent() → Run CLI → Update index
+[Reply with follow-up task] → execute_intent() → Run CLI → Update index
 
 For the OpenClaw community:
 - This is the main entry point for skill integration
 - OpenClaw should call handle() and use message() tool with buttons for Telegram
 - See SKILL.md for full integration guide
 
-Version: 3.2.4
+Version: 0.3.0
 Author: OpenClaw Community
 License: MIT
 """
@@ -46,9 +46,37 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.resolve import (
+        ensure_index as ensure_central_index,
+        get_config_path,
+        get_index_path,
+        get_project_registry,
+        list_registered_projects as resolve_list_registered_projects,
+        load_config as resolve_load_config,
+        load_index as resolve_load_index,
+        record_project_operation,
+        refresh_project_record,
+        resolve_project_path,
+        summarize_current_task,
+    )
+except ModuleNotFoundError:
+    from resolve import (
+        ensure_index as ensure_central_index,
+        get_config_path,
+        get_index_path,
+        get_project_registry,
+        list_registered_projects as resolve_list_registered_projects,
+        load_config as resolve_load_config,
+        load_index as resolve_load_index,
+        record_project_operation,
+        refresh_project_record,
+        resolve_project_path,
+        summarize_current_task,
+    )
+
 
 SKILL_ROOT = Path(__file__).parent.parent
-ATTENTION_CONFIG = SKILL_ROOT / "attention-config.json"
 ATTENTION_CLI = SKILL_ROOT / "scripts" / "attention"
 
 
@@ -77,36 +105,26 @@ class RouteResponse:
 # ─────────────────────────────────────────────────────────────────────────────
 
 INTENT_PATTERNS = {
-    "assemble": [
-        r"assemble\s+(.+?)(?:\s*$|\?)",
-        r"show\s+(?:me\s+)?(?:the\s+)?(?:architecture|map)(?:\s+for)?\s+(.+?)(?:\s*$|\?)",
-        r"what\s+is\s+the\s+state\s+of\s+(.+?)(?:\s*$|\?)",
-    ],
-    "freshness": [
-        r"freshness(?:\s+check)?\s+(.+?)(?:\s*$|\?)",
-        r"check\s+(?:the\s+)?freshness(?:\s+for)?\s+(.+?)(?:\s*$|\?)",
-        r"is\s+(.+?)\s+up\s*to\s*date",
-        r"verify\s+(.+?)(?:\s*$|\s+has\s+)",
-    ],
-    "status": [
-        r"status(?:\s+of)?\s+(.+?)(?:\s*$|\?)",
-        r"what\s+is\s+the\s+current\s+task(?:\s+for)?\s+(.+?)(?:\s*$|\?)",
-        r"show\s+(?:me\s+)?(?:the\s+)?task(?:\s+for)?\s+(.+?)(?:\s*$|\?)",
-    ],
-    "declare-intent": [
-        r"declare\s+(?:intent\s+)?(?:for\s+)?(.+?)(?:\s*$|\?)",
-        r"start\s+(?:work\s+on\s+)?(.+?)(?:\s*$|\?)",
-        r"i\s+want\s+to\s+(?:change|modify|update)\s+(.+?)(?:\s+by|\s+to|\s*$|\?)",
-    ],
-    "finalize-change": [
-        r"finalize\s+(?:change\s+)?(?:for\s+)?(.+?)(?:\s*$|\?)",
-        r"complete\s+(?:the\s+)?work\s+(?:on\s+)?(.+?)(?:\s*$|\?)",
-        r"finish\s+(?:editing\s+)?(.+?)(?:\s*$|\?)",
-    ],
-    "list-projects": [
+    "projects": [
         r"list\s+(?:all\s+)?projects",
         r"what\s+projects\s+are\s+available",
         r"show\s+(?:me\s+)?(?:the\s+)?projects",
+    ],
+    "init": [
+        r"init(?:ialize)?(?:\s+projects)?",
+        r"index\s+new",
+        r"scan\s+(?:for\s+)?projects",
+    ],
+    "wrap": [
+        r"wrap\s+(.+?)(?:\s*$|\?)",
+        r"wrap\s*up\s+(.+?)(?:\s*$|\?)",
+        r"finali[sz]e\s+(.+?)(?:\s*$|\?)",
+        r"finish\s+(.+?)(?:\s*$|\?)",
+    ],
+    "start": [
+        r"start\s+(.+?)(?:\s*$|\?)",
+        r"open\s+(.+?)(?:\s*$|\?)",
+        r"focus\s+on\s+(.+?)(?:\s*$|\?)",
     ],
 }
 
@@ -122,7 +140,12 @@ def detect_intent(text: str) -> tuple[str | None, str | None]:
         for pattern in patterns:
             match = re.search(pattern, text_lower)
             if match:
-                project = match.group(1).strip() if match.groups() else None
+                project = None
+                if match.groups():
+                    try:
+                        project = match.group(1).strip() if match.group(1) else None
+                    except (IndexError, AttributeError):
+                        project = None
                 # Clean up project name (remove trailing punctuation)
                 if project:
                     project = project.rstrip('?.!')
@@ -136,22 +159,19 @@ def detect_intent(text: str) -> tuple[str | None, str | None]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_config() -> dict[str, Any]:
-    """Load attention-config.json."""
-    if not ATTENTION_CONFIG.exists():
-        raise FileNotFoundError(f"Missing attention-config.json at {SKILL_ROOT}")
-    return json.loads(ATTENTION_CONFIG.read_text(encoding="utf-8"))
+    """Load central attention-layer config (with legacy fallback handled by resolver)."""
+    return resolve_load_config()
 
 
 def list_projects() -> list[str]:
     """Return list of registered project names."""
-    config = _load_config()
-    return list(config.get("project_registry", {}).keys())
+    return resolve_list_registered_projects(_load_config())
 
 
 def resolve_project(project_name: str) -> Path:
     """Resolve project path via config with fuzzy matching."""
     config = _load_config()
-    registry = config.get("project_registry", {})
+    registry = get_project_registry(config)
     
     # Normalize input
     normalized_input = project_name.lower().replace('-', ' ').replace('_', ' ')
@@ -182,7 +202,7 @@ def resolve_project(project_name: str) -> Path:
 def normalize_project_name(project_name: str) -> str:
     """Normalize project name to canonical case from config."""
     config = _load_config()
-    registry = config.get("project_registry", {})
+    registry = get_project_registry(config)
     
     # Normalize input
     normalized_input = project_name.lower().replace('-', ' ').replace('_', ' ')
@@ -239,7 +259,12 @@ _user_sessions: dict[str, dict] = {}
 def get_session(user_id: str) -> dict:
     """Get or create user session state."""
     if user_id not in _user_sessions:
-        _user_sessions[user_id] = {"pending_intent": None, "selected_project": None}
+        _user_sessions[user_id] = {
+            "pending_intent": None,
+            "selected_project": None,
+            "active_project": None,
+            "awaiting_followup": False,
+        }
     return _user_sessions[user_id]
 
 
@@ -252,33 +277,22 @@ def clear_session(user_id: str):
 # Persistent Index (State Tracking with Timestamps)
 # ─────────────────────────────────────────────────────────────────────────────
 
-ATTENTION_INDEX = SKILL_ROOT / ".attention" / "index.json"
-ATTENTION_VERSION = "3.2.4"
+ATTENTION_VERSION = "0.3.0"
 STALENESS_DAYS = 7  # Warn if not checked in 7 days
 
 
 def _load_index() -> dict:
-    """Load or create attention index with timestamps."""
-    if ATTENTION_INDEX.exists():
-        try:
-            return json.loads(ATTENTION_INDEX.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, IOError):
-            pass
-    
-    # Create new index
-    return {
-        "version": ATTENTION_VERSION,
-        "created_at": _now_iso(),
-        "last_updated": _now_iso(),
-        "projects": {}
-    }
+    """Load or create the central attention-layer index."""
+    ensure_central_index()
+    return resolve_load_index()
 
 
 def _save_index(index: dict):
-    """Save index to disk."""
-    ATTENTION_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    """Save index to disk via central state helpers."""
+    path = get_index_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     index["last_updated"] = _now_iso()
-    ATTENTION_INDEX.write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
+    path.write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
 
 
 def _now_iso() -> str:
@@ -303,71 +317,35 @@ def _days_since(timestamp: str) -> float:
 
 def update_project_index(project: str, operation: str, result: str = "ok"):
     """Update index after an operation."""
-    index = _load_index()
-    
-    if project not in index["projects"]:
-        index["projects"][project] = {
-            "first_seen": _now_iso(),
-            "operations": {}
-        }
-    
-    index["projects"][project]["operations"][operation] = {
-        "timestamp": _now_iso(),
-        "result": result
-    }
-    
-    _save_index(index)
+    try:
+        record_project_operation(project, resolve_project(project), operation, result=result)
+    except Exception:
+        index = _load_index()
+        project_record = index.setdefault("projects", {}).setdefault(project, {})
+        project_record["last_operation"] = operation
+        project_record["last_result"] = result
+        _save_index(index)
 
 
 def get_project_staleness(project: str) -> dict:
     """Get staleness info for a project."""
     index = _load_index()
     proj_data = index.get("projects", {}).get(project, {})
-    ops = proj_data.get("operations", {})
-    
+    if proj_data.get("canonical_path"):
+        proj_data = refresh_project_record(project, proj_data["canonical_path"], proj_data)
+
     staleness = {
-        "last_assemble": None,
-        "last_freshness": None,
+        "last_assemble": proj_data.get("last_assemble"),
+        "last_freshness": proj_data.get("last_freshness"),
         "days_since_assemble": None,
         "days_since_freshness": None,
-        "is_stale": False,
-        "warnings": []
+        "is_stale": bool(proj_data.get("stale")),
+        "warnings": list(proj_data.get("warnings", [])),
     }
-    
-    if "assemble" in ops:
-        staleness["last_assemble"] = ops["assemble"]["timestamp"]
-        staleness["days_since_assemble"] = _days_since(ops["assemble"]["timestamp"])
-    
-    if "freshness" in ops:
-        staleness["last_freshness"] = ops["freshness"]["timestamp"]
-        staleness["days_since_freshness"] = _days_since(ops["freshness"]["timestamp"])
-    
-    # Determine staleness
-    if staleness["days_since_assemble"] is not None and staleness["days_since_assemble"] > STALENESS_DAYS:
-        staleness["is_stale"] = True
-        staleness["warnings"].append(f"Not assembled in {staleness['days_since_assemble']:.0f} days")
-    
-    if staleness["days_since_freshness"] is not None and staleness["days_since_freshness"] > STALENESS_DAYS:
-        staleness["is_stale"] = True
-        staleness["warnings"].append(f"Freshness not checked in {staleness['days_since_freshness']:.0f} days")
-    
-    # Check if !MAP.md has been modified since last assemble
     if staleness["last_assemble"]:
-        try:
-            project_path = resolve_project(project)
-            map_path = project_path / "!MAP.md"
-            if map_path.exists():
-                import os
-                mtime = os.path.getmtime(map_path)
-                from datetime import datetime, timezone
-                map_modified = datetime.fromtimestamp(mtime, tz=timezone.utc)
-                assemble_time = _parse_iso(staleness["last_assemble"])
-                if map_modified > assemble_time:
-                    staleness["is_stale"] = True
-                    staleness["warnings"].append("!MAP.md modified since last assemble")
-        except Exception:
-            pass
-    
+        staleness["days_since_assemble"] = _days_since(staleness["last_assemble"])
+    if staleness["last_freshness"]:
+        staleness["days_since_freshness"] = _days_since(staleness["last_freshness"])
     return staleness
 
 
@@ -376,49 +354,31 @@ def get_project_staleness(project: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_project_index() -> list[dict]:
-    """Build project index with staleness awareness."""
+    """Build project index from the central config and index store."""
     config = _load_config()
-    registry = config.get("project_registry", {})
-    
+    registry = get_project_registry(config)
+    index_projects = _load_index().get("projects", {})
     projects = []
     for name, data in registry.items():
+        cached = index_projects.get(name, {})
+        record = refresh_project_record(name, data.get("canonical_path", "unknown"), cached) if not cached else cached
         project_info = {
             "name": name,
             "path": data.get("canonical_path", "unknown"),
-            "has_task": False,
+            "has_task": bool(record.get("has_task")),
             "entity_count": 0,
+            "task_status": record.get("status", "idle"),
         }
-        
-        # Quick check for CURRENT_TASK.md (lightweight)
-        try:
-            task_path = Path(data["canonical_path"]) / "CURRENT_TASK.md"
-            project_info["has_task"] = task_path.exists()
-            if project_info["has_task"]:
-                # Quick scan for status line
-                content = task_path.read_text(encoding="utf-8")[:500]
-                if "COMPLETED" in content[:200]:
-                    project_info["task_status"] = "completed"
-                elif "IN PROGRESS" in content[:200] or "ACTIVE" in content[:200]:
-                    project_info["task_status"] = "active"
-                else:
-                    project_info["task_status"] = "idle"
-        except Exception:
-            pass
-        
-        # Get staleness info from index
-        staleness = get_project_staleness(name)
-        project_info["staleness"] = staleness
-        
+        project_info["staleness"] = get_project_staleness(name)
         projects.append(project_info)
-    
     return projects
 
 
 def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
-    """Format project index with staleness indicators."""
+    """Format project picker for the start flow."""
     index = _load_index()
     
-    lines = [f"*Attention Layer v{ATTENTION_VERSION}* — Registered Projects\n"]
+    lines = [f"*Projects* — choose a repo to start\n"]
     
     # Track if any stale projects
     stale_count = 0
@@ -459,12 +419,11 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
     # Add footer based on state
     if stale_count > 0:
         lines.append(f"\n⚠️ *{stale_count} project(s) need attention*")
-        lines.append("_Run freshness check or assemble to update._")
     else:
-        lines.append(f"\n✅ All projects up to date")
+        lines.append(f"\n✅ All registered projects indexed")
         lines.append("_Last index update: " + index.get("last_updated", "unknown")[:10] + "_")
     
-    lines.append(f"\n_Select a project to see actions._")
+    lines.append("\n_Select a project to enter the start flow._")
     
     # Build menu items - prioritize stale projects, group into rows of 2
     menu_items = []
@@ -475,7 +434,7 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
         if p.get("staleness", {}).get("is_stale"):
             menu_items.append({
                 "label": f"🔴 {p['name']}",
-                "action": "show-actions",
+                "action": "start",
                 "project": p["name"],
                 "row": row_num // 2  # 2 buttons per row
             })
@@ -486,7 +445,7 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
         if not p.get("staleness", {}).get("is_stale"):
             menu_items.append({
                 "label": f"📋 {p['name']}",
-                "action": "show-actions",
+                "action": "start",
                 "project": p["name"],
                 "row": row_num // 2  # 2 buttons per row
             })
@@ -497,35 +456,67 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
         suggest_menu=True,
         menu_items=menu_items
     )
-    
+
+
+def format_wrap_menu(projects: list[dict], platform: str) -> RouteResponse:
+    """Format project picker for the wrap flow."""
+    del platform
+    lines = ["*Wrap Up* — choose a project to refresh memory and finalize state\n"]
+    menu_items = []
+    for idx, project in enumerate(projects):
+        marker = "🔴" if project.get("staleness", {}).get("is_stale") else "📦"
+        lines.append(f"{marker} *{project['name']}*")
+        menu_items.append({
+            "label": f"{marker} {project['name']}",
+            "action": "wrap",
+            "project": project["name"],
+            "row": idx // 2,
+        })
+    return RouteResponse(text="\n".join(lines), suggest_menu=True, menu_items=menu_items)
+
+
+def _read_task_excerpt(project: str) -> tuple[str, str]:
+    """Return task status and a short task excerpt."""
+    project_path = resolve_project(project)
+    status, summary = summarize_current_task(project_path)
+    if summary:
+        return status, summary
+    task_path = project_path / "CURRENT_TASK.md"
+    if not task_path.exists():
+        return "missing", "No CURRENT_TASK.md yet."
+    content = task_path.read_text(encoding="utf-8", errors="replace").strip()
+    excerpt = content[:280] if content else "CURRENT_TASK.md is empty."
+    return status, excerpt
+
+
+def format_start_focus(project: str) -> RouteResponse:
+    """Show latest project state and prompt for the next task."""
+    staleness = get_project_staleness(project)
+    status, task_excerpt = _read_task_excerpt(project)
+    lines = [f"*Start {project}*\n"]
+    lines.append(f"Current status: `{status}`")
+    if staleness.get("is_stale"):
+        warnings = ", ".join(staleness.get("warnings", [])) or "Index says project is stale."
+        lines.append(f"Attention: {warnings}")
+    lines.append("\nLatest task summary:")
+    lines.append(task_excerpt or "No prior task summary recorded.")
+    lines.append(
+        "\nReply with the next task or change request to declare the current focus. "
+        f"Example: `/attention_layer start {project} fix auth callback redirect`"
+    )
     return RouteResponse(
         text="\n".join(lines),
+        structured_data={"command": "start", "project": project, "status": status},
         suggest_menu=True,
-        menu_items=menu_items
-    )
-
-
-def format_project_actions(project: str, platform: str) -> RouteResponse:
-    """Show available actions for a selected project."""
-    text = f"*📁 {project}*\n\nWhat do you want to do?"
-    
-    # Group into rows of 2 for side-by-side buttons (like provider selection)
-    menu_items = [
-        {"label": "🔍 Assemble", "action": "assemble", "project": project, "row": 0},
-        {"label": "✓ Freshness", "action": "freshness", "project": project, "row": 0},
-        {"label": "📝 Status", "action": "status", "project": project, "row": 1},
-        {"label": "▶️ Declare", "action": "declare", "project": project, "row": 1},
-    ]
-    
-    return RouteResponse(
-        text=text,
-        suggest_menu=True,
-        menu_items=menu_items
+        menu_items=[
+            {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+            {"label": "📦 Wrap Up", "action": "wrap", "project": project, "row": 0},
+        ],
     )
 
 
 def format_main_menu(platform: str) -> RouteResponse:
-    """Show main attention-layer operations menu."""
+    """Show simplified top-level menu."""
     index = _load_index()
     
     lines = [f"*Attention Layer* — v{ATTENTION_VERSION}\n"]
@@ -534,8 +525,9 @@ def format_main_menu(platform: str) -> RouteResponse:
     
     # Check for any stale projects
     config = _load_config()
+    registry = get_project_registry(config)
     stale_count = 0
-    for name in config.get("project_registry", {}):
+    for name in registry:
         staleness = get_project_staleness(name)
         if staleness.get("is_stale"):
             stale_count += 1
@@ -547,11 +539,8 @@ def format_main_menu(platform: str) -> RouteResponse:
     
     menu_items = [
         {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
-        {"label": "🔍 Assemble", "action": "menu-assemble", "project": "", "row": 0},
-        {"label": "✓ Freshness", "action": "menu-freshness", "project": "", "row": 1},
-        {"label": "📝 Status", "action": "menu-status", "project": "", "row": 1},
-        {"label": "▶️ Declare", "action": "menu-declare", "project": "", "row": 2},
-        {"label": "🏁 Finalize", "action": "menu-finalize", "project": "", "row": 2},
+        {"label": "🧭 Index New", "action": "init", "project": "", "row": 0},
+        {"label": "📦 Wrap Up", "action": "menu-wrap", "project": "", "row": 1},
     ]
     
     return RouteResponse(
@@ -573,262 +562,197 @@ def route(request: RouteRequest) -> RouteResponse:
     text = request.text.strip()
     user_id = request.user_id
     session = get_session(user_id)
+    ensure_central_index()
+
+    try:
+        _load_config()
+    except FileNotFoundError:
+        return RouteResponse(
+            text=(
+                "*Attention Layer setup required*\n\n"
+                f"Config path: `{get_config_path()}`\n"
+                f"Index path: `{get_index_path()}`\n\n"
+                "Run `scripts/attention init-config` to create the central config, or "
+                "`scripts/attention init --dry-run` to scan default project folders first."
+            )
+        )
 
     # Check for explicit command prefix (handle both dash and underscore variants)
-    # Telegram converts /attention-layer to /attention_layer in bot commands
-    if text.startswith(("/attention", "!attention", "/attention_layer", "!attention_layer")):
-        # Normalize: replace underscore with dash for consistency
-        text = text.replace("attention_layer", "attention")
+    # Telegram converts /attention-layer to /attention_layer — underscore is canonical
+    if text.startswith(("/attention_layer", "!attention_layer", "/attention-layer", "!attention-layer")):
+        # Normalize TO underscore (canonical form)
+        text = text.replace("attention-layer", "attention_layer")
         remainder = text.split(None, 1)[1] if " " in text else ""
         if not remainder:
-            # Bare /attention command - show main menu (not just projects)
+            # Bare /attention_layer command - show main menu (not just projects)
             return format_main_menu(request.platform)
         text = remainder
 
-    # Handle menu-based action callbacks (from main menu buttons)
-    menu_actions = ("menu-assemble", "menu-freshness", "menu-status", "menu-declare", "menu-finalize")
-    if text in menu_actions:
-        actual_intent = text.replace("menu-", "")
-        session["menu_pending"] = actual_intent
-        projects = build_project_index()
-
-        # Show project selector with the action pre-selected
-        lines = [f"*{actual_intent.title()}* — Select project:\n"]
-        for p in projects:
-            status = "🔴" if p.get("staleness", {}).get("is_stale") else "📋"
-            lines.append(f"{status} {p['name']}")
-
-        menu_items = []
-        row_num = 0
-        for p in projects:
-            status = "🔴" if p.get("staleness", {}).get("is_stale") else "📋"
-            menu_items.append({
-                "label": f"{status} {p['name']}",
-                "action": actual_intent,
-                "project": p["name"],
-                "row": row_num // 2
-            })
-            row_num += 1
-
-        return RouteResponse(
-            text="\n".join(lines),
-            suggest_menu=True,
-            menu_items=menu_items
-        )
+    # Follow-up task entry after start flow.
+    if session.get("awaiting_followup") and session.get("active_project") and not text.startswith("attn:"):
+        first_token = text.split()[0].lower() if text.split() else ""
+        if first_token not in {"start", "init", "wrap", "projects", "/attention_layer", "/attention-layer"}:
+            return execute_intent("start", session["active_project"], request, task_text=text)
     
-    # Handle callback-style actions (from inline buttons)
-    if text.startswith(("show-actions ", "action:")):
-        # Extract project name
-        if text.startswith("show-actions "):
-            project = text[13:].strip()
-        else:
-            project = text.split(":")[1] if ":" in text else ""
-        if project:
-            session["selected_project"] = project
-            return format_project_actions(project, request.platform)
-    
-    # Check for pending intent (confirmation flow)
-    if session.get("pending_intent"):
-        pending = session["pending_intent"]
-        
-        if text.lower() in ("yes", "y", "confirm", "proceed", "go"):
-            # User confirmed - execute the pending action
+    # Handle attn: prefixed callbacks (from inline buttons)
+    if text.startswith("attn:"):
+        parts = text[5:].split(":")  # Remove "attn:" prefix
+        action = parts[0] if len(parts) > 0 else ""
+        project = parts[1] if len(parts) > 1 else ""
+        canonical_project = normalize_project_name(project) if project else ""
+
+        if action == "cancel":
             session["pending_intent"] = None
-            return execute_intent(pending["intent"], pending["project"], request)
-        elif text.lower() in ("no", "n", "cancel", "abort"):
-            session["pending_intent"] = None
-            return RouteResponse(text="Cancelled. Use /attention to see the menu.")
-        else:
-            # Still waiting for confirmation
-            return RouteResponse(
-                text=f"Pending: {pending['intent']} for *{pending['project']}*\n\nConfirm? (yes/no)",
-                suggest_menu=True,
-                menu_items=[
-                    {"label": "✓ Yes, proceed", "action": pending["intent"], "project": pending["project"]},
-                    {"label": "✗ Cancel", "action": "cancel", "project": ""}
-                ]
-            )
+            session["awaiting_followup"] = False
+            return RouteResponse(text="Cancelled. Use /attention_layer to see the menu.")
+        if action == "list-projects":
+            projects = build_project_index()
+            return format_index_menu(projects, request.platform)
+        if action == "menu-wrap":
+            return format_wrap_menu(build_project_index(), request.platform)
+        if action == "init":
+            return execute_intent("init", "", request)
+        if action == "start" and canonical_project:
+            return execute_intent("start", canonical_project, request)
+        if action == "wrap" and canonical_project:
+            return execute_intent("wrap", canonical_project, request)
+
+    lowered = text.lower().strip()
+    if lowered == "projects":
+        return format_index_menu(build_project_index(), request.platform)
+    if lowered == "init":
+        return execute_intent("init", "", request)
+    if lowered == "wrap":
+        return format_wrap_menu(build_project_index(), request.platform)
+    if lowered.startswith("wrap "):
+        project = text.split(None, 1)[1].strip()
+        return execute_intent("wrap", normalize_project_name(project), request)
+    if lowered.startswith("start "):
+        parts = text.split(None, 2)
+        if len(parts) < 2:
+            return RouteResponse(text="Usage: /attention_layer start <project> [task]")
+        project = normalize_project_name(parts[1])
+        task_text = parts[2].strip() if len(parts) > 2 else None
+        return execute_intent("start", project, request, task_text=task_text)
     
     # Detect intent
     intent, project = detect_intent(text)
     
     if not intent:
-        # No clear intent - show index menu (fast, no !MAP.md reads yet)
-        projects = build_project_index()
-        return format_index_menu(projects, request.platform)
-    
-    if intent == "list-projects":
         return format_main_menu(request.platform)
-    
-    # Intents that need a project - but we don't execute yet!
-    # Store intent and ask for confirmation first
-    if not project:
-        return format_main_menu(request.platform)
-    
-    # Normalize project name
-    try:
-        canonical_project = normalize_project_name(project)
-    except ValueError as e:
-        return RouteResponse(text=f"Unknown project: {project}. Use /attention to see registered projects.")
-    
-    # Store pending intent and ask for confirmation
-    session["pending_intent"] = {"intent": intent, "project": canonical_project}
-    session["selected_project"] = canonical_project
-    
-    return RouteResponse(
-        text=f"*Intent Declaration*\n\nAction: {intent}\nProject: {canonical_project}\n\nThis will read !MAP.md and perform the operation. Confirm?",
-        suggest_menu=True,
-        menu_items=[
-            {"label": f"✓ Confirm {intent}", "action": intent, "project": canonical_project},
-            {"label": "✗ Cancel", "action": "cancel", "project": ""}
-        ]
-    )
+
+    if intent == "projects":
+        return format_index_menu(build_project_index(), request.platform)
+    if intent == "init":
+        return execute_intent("init", "", request)
+    if intent in {"start", "wrap"} and project:
+        return execute_intent(intent, normalize_project_name(project), request)
+
+    return format_main_menu(request.platform)
 
 
-def execute_intent(intent: str, project: str, request: RouteRequest) -> RouteResponse:
-    """Execute the intent after confirmation (this is where !MAP.md gets read)."""
+def execute_intent(intent: str, project: str, request: RouteRequest, task_text: str | None = None) -> RouteResponse:
+    """Execute the simplified start/init/wrap intent surface."""
     try:
-        if intent == "assemble":
-            stdout, stderr, rc = run_cli("assemble", project)
-            # Record in index after successful operation
-            update_project_index(project, "assemble", "ok" if rc == 0 else "fail")
-            return RouteResponse(
-                text=stdout if rc == 0 else f"Error: {stderr or stdout}",
-                structured_data={"command": "assemble", "project": project, "rc": rc}
-            )
-        
-        elif intent == "freshness":
-            stdout, stderr, rc = run_cli("map-freshness-check", project)
-            update_project_index(project, "freshness", "ok" if rc == 0 else "fail")
-            return RouteResponse(
-                text=stdout if rc == 0 else f"Error: {stderr or stdout}",
-                structured_data={"command": "freshness", "project": project, "rc": rc}
+        session = get_session(request.user_id)
+
+        if intent == "init":
+            result = subprocess.run(
+                [str(ATTENTION_CLI), "init"],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             return RouteResponse(
-                text=stdout if rc == 0 else f"Error: {stderr or stdout}",
-                structured_data={"command": "freshness", "project": project, "rc": rc}
-            )
-        
-        elif intent == "status":
-            project_path = resolve_project(project)
-            task_path = project_path / "CURRENT_TASK.md"
-            if not task_path.exists():
-                return RouteResponse(text=f"No CURRENT_TASK.md for {project}")
-            content = task_path.read_text(encoding="utf-8")[:1500]
-            return RouteResponse(
-                text=f"**{project} - Current Task**\n\n{content}",
-                structured_data={"command": "status", "project": project}
-            )
-        
-        elif intent == "declare-intent":
-            # Return a form/flow request
-            return RouteResponse(
-                text=f"Starting declare-intent for **{project}**...\n\nPlease specify:\n- Affected entities (comma-separated)\n- First principle summary\n- Requires new entity? (yes/no)",
-                structured_data={
-                    "command": "declare-intent",
-                    "project": project,
-                    "next_step": "collect-details"
-                },
+                text=(result.stdout if result.returncode == 0 else result.stderr or result.stdout).strip() or "Project index refreshed.",
+                structured_data={"command": "init", "rc": result.returncode},
                 suggest_menu=True,
                 menu_items=[
-                    {"label": "Continue", "action": "declare-flow", "project": project, "step": "start"},
-                    {"label": "Cancel", "action": "cancel"}
-                ]
+                    {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+                    {"label": "📦 Wrap Up", "action": "menu-wrap", "project": "", "row": 0},
+                ],
             )
-        
-        elif intent == "finalize-change":
-            stdout, stderr, rc = run_cli("map-freshness-check", project)  # First check freshness
-            if rc != 0:
-                return RouteResponse(
-                    text=f"Cannot finalize - freshness check failed:\n{stderr or stdout}",
-                    structured_data={"blocked": True, "reason": "freshness-failed"}
+
+        if not project:
+            return RouteResponse(text=f"Missing project for `{intent}`. Use /attention_layer to browse projects.")
+
+        if intent == "start":
+            session["selected_project"] = project
+            session["active_project"] = project
+            session["awaiting_followup"] = True
+            if task_text:
+                task_stdout, task_stderr, task_rc = run_cli(
+                    "update-task", project, ["--status-markdown", task_text]
                 )
-            return RouteResponse(
-                text=f"Ready to finalize **{project}**. Run:\n`attention finalize-change {project}`",
-                structured_data={"command": "finalize-ready", "project": project}
+                if task_rc != 0:
+                    return RouteResponse(text=f"Error updating task: {task_stderr or task_stdout}")
+                assemble_stdout, assemble_stderr, assemble_rc = run_cli("assemble", project)
+                if assemble_rc != 0:
+                    return RouteResponse(text=f"Task saved for {project}, but assemble failed:\n{assemble_stderr or assemble_stdout}")
+                status, latest_summary = _read_task_excerpt(project)
+                lines = [
+                    f"*Start {project}*",
+                    "",
+                    "Declared current focus and refreshed the project map.",
+                    f"Latest task: {latest_summary or task_text}",
+                    "",
+                    "Reply with another follow-up if the task changes.",
+                ]
+                return RouteResponse(
+                    text="\n".join(lines),
+                    structured_data={"command": "start", "project": project, "rc": 0, "status": status},
+                    suggest_menu=True,
+                    menu_items=[
+                        {"label": "📦 Wrap Up", "action": "wrap", "project": project, "row": 0},
+                        {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+                    ],
+                )
+            return format_start_focus(project)
+
+        if intent == "wrap":
+            session["awaiting_followup"] = False
+            session["active_project"] = None
+            freshness_stdout, freshness_stderr, freshness_rc = run_cli("map-freshness-check", project)
+            if freshness_rc != 0:
+                return RouteResponse(
+                    text=f"Wrap blocked for {project}.\n\nFreshness check failed:\n{freshness_stderr or freshness_stdout}",
+                    structured_data={"command": "wrap", "project": project, "rc": freshness_rc},
+                )
+            finalize_stdout, finalize_stderr, finalize_rc = run_cli(
+                "finalize-change",
+                project,
+                ["--tests-result", "not_run", "--notes", "Wrapped via service_router"],
             )
-        
-        elif intent == "cancel":
-            return RouteResponse(text="Cancelled. Use /attention to see the menu.")
-        
-        else:
-            return RouteResponse(text=f"Intent '{intent}' not yet implemented")
-            
-    except Exception as e:
-        return RouteResponse(text=f"Error executing {intent}: {e}")
-    
-    if intent == "list-projects":
-        projects = list_projects()
-        return RouteResponse(
-            text=f"Registered projects ({len(projects)}):\n" + "\n".join(f"• {p}" for p in projects),
-            structured_data={"projects": projects}
-        )
-    
-    # Intents that need a project
-    if not project:
-        return RouteResponse(
-            text=f"You want to {intent}, but which project?\nAvailable: {', '.join(list_projects())}",
-            suggest_menu=True
-        )
-    
-    # Execute the intent
-    try:
-        if intent == "assemble":
-            stdout, stderr, rc = run_cli("assemble", project)
-            return RouteResponse(
-                text=stdout if rc == 0 else f"Error: {stderr or stdout}",
-                structured_data={"command": "assemble", "project": project, "rc": rc}
+            if finalize_rc != 0:
+                return RouteResponse(
+                    text=f"Freshness passed for {project}, but finalize failed:\n{finalize_stderr or finalize_stdout}",
+                    structured_data={"command": "wrap", "project": project, "rc": finalize_rc},
+                )
+            sync_stdout, sync_stderr, sync_rc = run_cli(
+                "sync-state",
+                project,
+                ["--description", "Wrap-up sync via service_router"],
             )
-        
-        elif intent == "freshness":
-            stdout, stderr, rc = run_cli("map-freshness-check", project)
+            lines = [
+                f"*Wrap Up {project}*",
+                "",
+                freshness_stdout.strip() or "Freshness check passed.",
+                finalize_stdout.strip() or "Finalize report written.",
+            ]
+            if sync_rc == 0:
+                lines.append(sync_stdout.strip() or "Project memory synced.")
+            else:
+                lines.append(f"Sync warning: {sync_stderr or sync_stdout}")
             return RouteResponse(
-                text=stdout if rc == 0 else f"Error: {stderr or stdout}",
-                structured_data={"command": "freshness", "project": project, "rc": rc}
-            )
-        
-        elif intent == "status":
-            project_path = resolve_project(project)
-            task_path = project_path / "CURRENT_TASK.md"
-            if not task_path.exists():
-                return RouteResponse(text=f"No CURRENT_TASK.md for {project}")
-            content = task_path.read_text(encoding="utf-8")[:1500]
-            return RouteResponse(
-                text=f"**{project} - Current Task**\n\n{content}",
-                structured_data={"command": "status", "project": project}
-            )
-        
-        elif intent == "declare-intent":
-            # Return a form/flow request
-            return RouteResponse(
-                text=f"Starting declare-intent for **{project}**...",
-                structured_data={
-                    "command": "declare-intent",
-                    "project": project,
-                    "next_step": "select-entities"
-                },
+                text="\n\n".join(lines),
+                structured_data={"command": "wrap", "project": project, "rc": 0},
                 suggest_menu=True,
                 menu_items=[
-                    {"label": "Continue", "action": "declare-flow", "project": project, "step": "start"},
-                    {"label": "Cancel", "action": "cancel"}
-                ]
+                    {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+                    {"label": "▶ Start Again", "action": "start", "project": project, "row": 0},
+                ],
             )
-        
-        elif intent == "finalize-change":
-            stdout, stderr, rc = run_cli("map-freshness-check", project)  # First check freshness
-            if rc != 0:
-                return RouteResponse(
-                    text=f"Cannot finalize - freshness check failed:\n{stderr or stdout}",
-                    structured_data={"blocked": True, "reason": "freshness-failed"}
-                )
-            return RouteResponse(
-                text=f"Ready to finalize **{project}**. Run:\n`attention finalize-change {project}`",
-                structured_data={"command": "finalize-ready", "project": project}
-            )
-        
-        else:
-            return RouteResponse(text=f"Intent '{intent}' not yet implemented")
-            
+        return RouteResponse(text=f"Intent '{intent}' not yet implemented")
     except Exception as e:
         return RouteResponse(text=f"Error executing {intent}: {e}")
 
@@ -951,7 +875,7 @@ if __name__ == "__main__":
         print("Examples:")
         print("  python3 service_router.py telegram 'assemble summon-A2A-academy'")
         print("  python3 service_router.py whatsapp 'show me the status of summon'")
-        print("  python3 service_router.py tui 'declare intent for attention-layer'")
+        print("  python3 service_router.py tui 'declare intent for attention_layer'")
         sys.exit(1)
     
     platform = sys.argv[1]

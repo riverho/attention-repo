@@ -5,13 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 show_help() {
   cat <<'EOF'
-attention - lean attention layer CLI (v3)
+attention - attention layer CLI (v0.3.0)
 
 USAGE:
   attention <command> [args]
 
 COMMANDS:
-  init <repo-path>
+  init [repo-path] [--include-skills] [--include-plugins] [--dry-run]
+  init-config [--force]
+  start <repo-path> [task...]
+  wrap <repo-path>
   declare-intent <repo-path> --affected-entities ... --deployment-pipeline ... --first-principle-summary ... --requires-new-entity true|false [--task-type code|docs|tests]
   assemble <repo-path>
   update-task <repo-path> --status-markdown "..."
@@ -20,12 +23,19 @@ COMMANDS:
   finalize-change <repo-path> [--tests-command ...] [--tests-result pass|fail|not_run] [--notes ...]
   clear-task <repo-path>
   sync-state <repo-path> [--version X.Y.Z] [--description "..."]
+  repair
+  reindex
 
 EXAMPLES:
+  attention init-config
+  attention init --dry-run
+  attention init
+  attention start . "Summarize the new central config/index flow and trim stale menu paths."
+  attention wrap .
   attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
   attention assemble ~/code/repo
   attention update-task ~/code/repo --status-markdown "Mapped entities and started auth middleware edits."
-  attention sync-state . --version 3.2.4 --description "Menu-first UX with Telegram inline keyboards"
+  attention sync-state . --version 0.3.0 --description "Menu-first UX with Telegram inline keyboards"
 EOF
 }
 
@@ -40,6 +50,31 @@ shift
 case "$cmd" in
   init)
     python3 "$SCRIPT_DIR/jit-context.py" init "$@"
+    ;;
+  init-config)
+    python3 "$SCRIPT_DIR/jit-context.py" init-config "$@"
+    ;;
+  start)
+    if [ $# -lt 1 ]; then
+      echo "Usage: attention start <repo-path> [task...]"
+      exit 1
+    fi
+    repo="$1"
+    shift
+    python3 "$SCRIPT_DIR/jit-context.py" reindex >/dev/null 2>&1 || true
+    if [ $# -eq 0 ]; then
+      echo "Project focus: $repo"
+      if [ -f "$repo/CURRENT_TASK.md" ]; then
+        echo
+        sed -n '1,160p' "$repo/CURRENT_TASK.md"
+      else
+        echo "No CURRENT_TASK.md found."
+      fi
+      exit 0
+    fi
+    task="$*"
+    python3 "$SCRIPT_DIR/jit-context.py" update-task "$repo" --status-markdown "$task"
+    python3 "$SCRIPT_DIR/jit-context.py" assemble "$repo"
     ;;
   declare-intent)
     python3 "$SCRIPT_DIR/jit-context.py" declare-intent "$@"
@@ -64,6 +99,23 @@ case "$cmd" in
     ;;
   sync-state)
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$@"
+    ;;
+  wrap)
+    if [ $# -lt 1 ]; then
+      echo "Usage: attention wrap <repo-path>"
+      exit 1
+    fi
+    repo="$1"
+    shift
+    python3 "$SCRIPT_DIR/jit-context.py" map-freshness-check "$repo" "$@"
+    python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$repo" --tests-result not_run --notes "Wrapped via attention CLI"
+    python3 "$SCRIPT_DIR/jit-context.py" sync-state "$repo" --description "Wrap-up sync via attention CLI"
+    ;;
+  repair)
+    python3 "$SCRIPT_DIR/jit-context.py" repair "$@"
+    ;;
+  reindex)
+    python3 "$SCRIPT_DIR/jit-context.py" reindex "$@"
     ;;
   -h|--help|help)
     show_help

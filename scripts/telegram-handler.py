@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram bot handler for attention-layer skill.
+Telegram bot handler for attention_layer skill.
 
 THIN wrapper around service_router.py. No business logic here.
 """
@@ -59,11 +59,12 @@ def handle_telegram_message(chat_id: str, user_id: str, text: str) -> dict:
     if not is_authorized(user_id):
         return {"chat_id": chat_id, "text": "⛔ Not authorized"}
     
-    # Strip /attention prefix if present
-    if text.startswith(("/attention ", "!attention ")):
-        text = text.split(None, 1)[1] if " " in text else ""
-    elif text == "/attention":
-        text = "list projects"  # Default action
+    # Strip /attention or /attention_layer prefix if present
+    if text.startswith(("/attention_layer", "/attention ", "!attention ")):
+        if text.startswith("/attention_layer"):
+            text = text[len("/attention_layer"):].strip()
+        else:
+            text = text.split(None, 1)[1] if " " in text else ""
     
     # Route via service_router
     request = RouteRequest(
@@ -87,30 +88,8 @@ def handle_telegram_callback(chat_id: str, user_id: str, callback_data: str) -> 
     if not is_authorized(user_id):
         return {"chat_id": chat_id, "text": "⛔ Not authorized"}
     
-    # Parse callback data (format: "attn:action:project" or "attn:action:project:extra")
-    if callback_data.startswith("attn:"):
-        parts = callback_data[5:].split(":")
-        action = parts[0] if parts else ""
-        project = parts[1] if len(parts) > 1 else ""
-        extra = parts[2] if len(parts) > 2 else ""
-        
-        # Map action to natural language or service_router action
-        if action == "show-actions":
-            text = f"show-actions {project}"
-        elif action == "cancel":
-            text = "cancel"
-        elif action in ("assemble", "freshness", "status", "declare"):
-            text_map = {
-                "assemble": f"assemble {project}",
-                "freshness": f"freshness check {project}",
-                "status": f"status {project}",
-                "declare": f"declare intent for {project}",
-            }
-            text = text_map.get(action, f"{action} {project}").strip()
-        else:
-            text = f"{action} {project}".strip()
-    else:
-        text = callback_data
+    # Pass callback payload through as-is; service_router owns callback semantics.
+    text = callback_data
     
     # Route via service_router
     request = RouteRequest(
@@ -169,7 +148,7 @@ async def attention_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # Setup
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-app.add_handler(CommandHandler("attention", attention_command))
+app.add_handler(CommandHandler("attention_layer", attention_command))
 app.add_handler(CallbackQueryHandler(attention_callback, pattern="^attn:"))
 app.run_polling()
 """
@@ -186,9 +165,9 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Test 1: /attention command - shows index menu
-    print("\n1. User: /attention")
+    print("\n1. User: /attention_layer")
     print("   Expected: Show project index menu (fast, no !MAP.md reads)")
-    result = handle_telegram_message("12345", "user-1", "/attention")
+    result = handle_telegram_message("12345", "user-1", "/attention_layer")
     print(f"   Bot: {result['text'][:80]}...")
     
     # Test 2: Select project - show actions

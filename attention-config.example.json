@@ -1,5 +1,5 @@
 {
-  "$schema": "attention-layer-config-v1",
+  "$schema": "attention_layer-config-v1",
   "skill_root": ".",
   "project_registry": {
     "my-project": {
