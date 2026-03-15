@@ -7,11 +7,650 @@
       "x": 0,
       "y": 0,
       "name": "Frame",
-      "clip": true,
-      "width": 800,
-      "height": 600,
-      "fill": "#FFFFFF",
-      "layout": "none"
+      "width": 1200,
+      "height": 1020,
+      "fill": "$bg-page",
+      "layout": "vertical",
+      "gap": 32,
+      "padding": [
+        48,
+        64
+      ],
+      "children": [
+        {
+          "type": "text",
+          "id": "UnXZ3",
+          "name": "title",
+          "fill": "$accent-orange",
+          "content": "attention-repo // lean v3.1 workflow",
+          "fontFamily": "Oswald",
+          "fontSize": 36,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "bhJoR",
+          "name": "subtitle",
+          "fill": "$text-secondary",
+          "content": "// OODA-loop: declare → assemble → implement → finalize",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 13,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "RDVi5",
+          "name": "flowArea",
+          "width": "fill_container",
+          "height": 830,
+          "fill": "$bg-page",
+          "layout": "none",
+          "children": [
+            {
+              "id": "IVFaT",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 0,
+              "name": "step1",
+              "descendants": {
+                "mGcdM": {
+                  "content": "01"
+                },
+                "nxpjS": {
+                  "content": "DECLARE INTENT"
+                },
+                "lwrZx": {
+                  "content": "first_principle_summary + affected entities + CI/CD pipeline"
+                }
+              }
+            },
+            {
+              "id": "zMbTC",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 85,
+              "name": "arr1"
+            },
+            {
+              "id": "OLIxC",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 120,
+              "name": "step2",
+              "descendants": {
+                "mGcdM": {
+                  "content": "02"
+                },
+                "nxpjS": {
+                  "content": "ASSEMBLE"
+                },
+                "lwrZx": {
+                  "content": "prints JIT context payload to stdout for implementation"
+                }
+              }
+            },
+            {
+              "id": "vdRTa",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 205,
+              "name": "arr2"
+            },
+            {
+              "id": "tbbl4",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 240,
+              "name": "step3",
+              "descendants": {
+                "mGcdM": {
+                  "content": "03"
+                },
+                "nxpjS": {
+                  "content": "IMPLEMENT"
+                },
+                "lwrZx": {
+                  "content": "code edits + tests against declared entities"
+                }
+              }
+            },
+            {
+              "id": "LbOYH",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 325,
+              "name": "arr3"
+            },
+            {
+              "id": "MZ0fq",
+              "type": "ref",
+              "ref": "3yxMD",
+              "x": 440,
+              "y": 360,
+              "name": "dec1",
+              "descendants": {
+                "wWHtb": {
+                  "content": "new entity needed?"
+                }
+              }
+            },
+            {
+              "type": "text",
+              "id": "CAfa1",
+              "x": 635,
+              "y": 370,
+              "name": "yesLabel",
+              "fill": "$accent-teal",
+              "content": "YES",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 11,
+              "fontWeight": "600"
+            },
+            {
+              "id": "BVcja",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 680,
+              "y": 355,
+              "width": 180,
+              "name": "step4",
+              "descendants": {
+                "mGcdM": {
+                  "content": "04"
+                },
+                "nxpjS": {
+                  "content": "REGISTER ENTITY"
+                },
+                "lwrZx": {
+                  "content": "add to !MAP.md entity registry",
+                  "width": 140
+                }
+              }
+            },
+            {
+              "type": "text",
+              "id": "MC1GN",
+              "x": 520,
+              "y": 412,
+              "name": "noLabel",
+              "fill": "$accent-orange",
+              "content": "NO",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 11,
+              "fontWeight": "600"
+            },
+            {
+              "id": "U6Y9x",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 430,
+              "name": "arr4"
+            },
+            {
+              "id": "NQi8z",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 465,
+              "name": "step5",
+              "descendants": {
+                "mGcdM": {
+                  "content": "05"
+                },
+                "nxpjS": {
+                  "content": "UPDATE TASK"
+                },
+                "lwrZx": {
+                  "content": "write CURRENT_TASK.md with status markdown"
+                }
+              }
+            },
+            {
+              "id": "z0C2j",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 548,
+              "name": "arr5"
+            },
+            {
+              "id": "K0J8U",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 582,
+              "fill": "$bg-elevated",
+              "name": "step6",
+              "descendants": {
+                "mGcdM": {
+                  "content": "06"
+                },
+                "nxpjS": {
+                  "content": "MAP FRESHNESS"
+                },
+                "lwrZx": {
+                  "content": "update !MAP.md entities or justify no-change"
+                }
+              }
+            },
+            {
+              "id": "wBR5I",
+              "type": "ref",
+              "ref": "2HaIo",
+              "x": 529,
+              "y": 688,
+              "name": "arr6"
+            },
+            {
+              "id": "AleDP",
+              "type": "ref",
+              "ref": "PTJ2L",
+              "x": 430,
+              "y": 721,
+              "fill": "$accent-teal",
+              "name": "step7",
+              "descendants": {
+                "mGcdM": {
+                  "content": "07",
+                  "fill": "$text-dark"
+                },
+                "nxpjS": {
+                  "content": "FINALIZE",
+                  "fill": "$text-dark"
+                },
+                "lwrZx": {
+                  "content": "run tests + generate finalize report",
+                  "fill": "$text-dark",
+                  "width": 140
+                }
+              }
+            },
+            {
+              "type": "rectangle",
+              "id": "5cRJS",
+              "x": 620,
+              "y": 383,
+              "name": "hline",
+              "fill": "$accent-teal",
+              "width": 60,
+              "height": 2
+            },
+            {
+              "type": "text",
+              "id": "cvIVx",
+              "x": 200,
+              "y": 10,
+              "name": "sideLabelA",
+              "fill": "$text-secondary",
+              "content": "// enforcement rules",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "BeqLi",
+              "x": 200,
+              "y": 22,
+              "name": "sideLabelB",
+              "fill": "$text-secondary",
+              "content": "- first_principle_summary >= 6 words",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "aLzSA",
+              "x": 200,
+              "y": 34,
+              "name": "sideLabelC",
+              "fill": "$text-secondary",
+              "content": "- entity IDs must exist in !MAP.md",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "b1L9T",
+              "x": 200,
+              "y": 46,
+              "name": "sideLabelD",
+              "fill": "$text-secondary",
+              "content": "- pipeline path must exist on disk",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "I9atN",
+              "x": 200,
+              "y": 58,
+              "name": "sideLabelE",
+              "fill": "$text-secondary",
+              "content": "- pipeline must match entity ci_cd field",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "C0VKs",
+              "x": 40,
+              "y": 130,
+              "name": "keyFiles",
+              "width": 350,
+              "fill": "$bg-card",
+              "cornerRadius": 16,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                16,
+                20
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "iachf",
+                  "name": "kfTitle",
+                  "fill": "$accent-orange",
+                  "content": "[KEY_FILES]",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "6xJ9D",
+                  "name": "kf1",
+                  "fill": "$text-secondary",
+                  "content": "scripts/attention        // CLI gateway (bash)",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "sXxK1",
+                  "name": "kf2",
+                  "fill": "$text-secondary",
+                  "content": "scripts/jit-context.py   // all logic (python)",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "5wq11",
+                  "name": "kf3",
+                  "fill": "$text-secondary",
+                  "content": "!MAP.md                  // entity registry",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "xtUS6",
+                  "name": "kf4",
+                  "fill": "$text-secondary",
+                  "content": "CURRENT_TASK.md          // ephemeral status",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "cweGp",
+                  "name": "kf5",
+                  "fill": "$text-secondary",
+                  "content": ".attention/intent.json   // architectural intent",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "14glg",
+              "x": 40,
+              "y": 480,
+              "name": "maturity",
+              "width": 350,
+              "fill": "$bg-card",
+              "cornerRadius": 16,
+              "layout": "vertical",
+              "gap": 6,
+              "padding": [
+                16,
+                20
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wYc1K",
+                  "name": "mTitle",
+                  "fill": "$accent-teal",
+                  "content": "[MATURITY_LEVEL: L3]",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "1Z8o3",
+                  "name": "m1",
+                  "fill": "$bg-inactive",
+                  "content": "L1  manual intent declaration",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "rjTWP",
+                  "name": "m2",
+                  "fill": "$bg-inactive",
+                  "content": "L2  entity validation enforced",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "7Abkp",
+                  "name": "m3",
+                  "fill": "$accent-teal",
+                  "content": "L3  CI/CD injection + finalize reports",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "text",
+                  "id": "gP3SK",
+                  "name": "m4",
+                  "fill": "$text-secondary",
+                  "content": "L4  autonomous drift detection (planned)",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 9,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "eCMaP",
+              "x": 730,
+              "y": 340,
+              "name": "optLabel",
+              "fill": "$accent-orange",
+              "content": "[OPTIONAL]",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "600"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "PTJ2L",
+      "x": 1400,
+      "y": 0,
+      "name": "Component/StepBox",
+      "reusable": true,
+      "width": 200,
+      "fill": "$bg-card",
+      "cornerRadius": 16,
+      "layout": "vertical",
+      "gap": 4,
+      "padding": [
+        16,
+        20
+      ],
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "mGcdM",
+          "name": "stepNum",
+          "fill": "$accent-orange",
+          "content": "01",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 11,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "nxpjS",
+          "name": "stepLabel",
+          "fill": "$text-primary",
+          "content": "step_name",
+          "fontFamily": "Oswald",
+          "fontSize": 20,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "lwrZx",
+          "name": "stepDesc",
+          "fill": "$text-secondary",
+          "textGrowth": "fixed-width",
+          "width": 160,
+          "content": "description here",
+          "textAlign": "center",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 9,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "3yxMD",
+      "x": 1400,
+      "y": 150,
+      "name": "Component/Decision",
+      "reusable": true,
+      "width": 180,
+      "fill": "$accent-orange",
+      "cornerRadius": 16,
+      "layout": "vertical",
+      "gap": 2,
+      "padding": [
+        12,
+        16
+      ],
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "wWHtb",
+          "name": "label",
+          "fill": "$text-dark",
+          "content": "condition?",
+          "textAlign": "center",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 12,
+          "fontWeight": "600"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "2HaIo",
+      "x": 1400,
+      "y": 250,
+      "name": "Component/ArrowDown",
+      "reusable": true,
+      "width": 2,
+      "height": 32,
+      "fill": "$text-secondary",
+      "layout": "vertical",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "path",
+          "id": "jRIUg",
+          "name": "head",
+          "geometry": "M0 0l5 8 5-8z",
+          "fill": "$text-secondary",
+          "width": 10,
+          "height": 8
+        }
+      ]
     }
-  ]
+  ],
+  "variables": {
+    "accent-orange": {
+      "type": "color",
+      "value": "#FF6B35"
+    },
+    "accent-teal": {
+      "type": "color",
+      "value": "#00D4AA"
+    },
+    "bg-card": {
+      "type": "color",
+      "value": "#212121"
+    },
+    "bg-elevated": {
+      "type": "color",
+      "value": "#2D2D2D"
+    },
+    "bg-inactive": {
+      "type": "color",
+      "value": "#3D3D3D"
+    },
+    "bg-page": {
+      "type": "color",
+      "value": "#1A1A1A"
+    },
+    "text-dark": {
+      "type": "color",
+      "value": "#0D0D0D"
+    },
+    "text-primary": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "text-secondary": {
+      "type": "color",
+      "value": "#777777"
+    }
+  }
 }

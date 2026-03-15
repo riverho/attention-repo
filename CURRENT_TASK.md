@@ -1,19 +1,19 @@
-<!-- Last synced: 2026-03-12T10:03:59.116407+00:00 | Version: 0.3.0 -->
+<!-- Last synced: 2026-03-15T18:10:22.978429+00:00 | Version: 0.3.1 -->
 # CURRENT_TASK.md
 
 ## Status
-Removed user-facing mock/example leakage from the live focus response, dropped fake default entity data from rebuilt !MAP templates, and normalized test fixture strings so the repo reads like production. Full test suite still passes.
+Implemented a first-run-after-update gate keyed to version.json, added bootstrap-update to validate !MAP.md/CURRENT_TASK.md and compile central skill runtime metadata, and blocked normal CLI/router flows until the compile completes.
 
 ## Architectural Intent
 - Entities: E-ATTN-CLI-01, E-JIT-ENGINE-01, E-ATTN-PLUGIN-01
 - Pipeline: .github/workflows/ci.yml
-- First Principle: Remove user-facing mock and placeholder data from live attention-repo flows without weakening tests or recovery behavior.
+- First Principle: Gate the first run after a deployed update and compile control-plane state from !MAP.md and CURRENT_TASK.md.
 - Requires New Entity: False
 
 ## Updated
-2026-03-12T07:24:17.017895+00:00
+2026-03-15T17:59:39.175674+00:00
 
 ## Attention State
 - State: Released
-- Released At: 2026-03-12T10:04:24.106340+00:00
-- Note: Released attention.
+- Released At: 2026-03-15T18:10:23.094933+00:00
+- Note: Released via attention CLI wrap flow

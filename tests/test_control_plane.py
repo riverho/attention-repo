@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import scripts.resolve as resolve
+from scripts.attention_state import get_state as get_attention_state
 from scripts.resolve import (
     build_default_config,
     detect_project_candidates,
@@ -21,9 +22,11 @@ from scripts.resolve import (
     load_index,
     load_config,
     resolve_project_key,
+    save_index,
     save_config,
     summarize_current_task,
 )
+from scripts.version_info import VERSION_FILE, get_version
 
 
 class ControlPlaneTests(unittest.TestCase):
@@ -76,6 +79,16 @@ class ControlPlaneTests(unittest.TestCase):
             },
         )
         self._env.start()
+        save_index(
+            {
+                "version": "1",
+                "created_at": "2026-03-15T07:00:00+00:00",
+                "last_updated": "2026-03-15T07:00:00+00:00",
+                "projects": {},
+                "skill_runtime": {"compiled_version": get_version()},
+            },
+            get_index_path(),
+        )
 
     def tearDown(self) -> None:
         self._env.stop()
@@ -225,6 +238,74 @@ class ControlPlaneTests(unittest.TestCase):
         }
         self.assertEqual(get_project_display_name("attention_repo", config), "attention-repo")
 
+    def test_canonical_version_file_is_the_single_runtime_source(self) -> None:
+        payload = json.loads(VERSION_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(get_version(), payload["version"])
+
+    def test_attention_help_reads_canonical_version(self) -> None:
+        env = dict(os.environ)
+        env["ATTENTION_REPO_STATE_ROOT"] = str(self.state_root)
+        env["OPENCLAW_CONFIG_PATH"] = str(self.openclaw_config_path)
+
+        result = subprocess.run(
+            ["scripts/attention", "--help"],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertIn(f"attention - attention repo CLI (v{get_version()})", result.stdout)
+
+    def test_update_gate_requires_bootstrap_when_compiled_version_is_stale(self) -> None:
+        index = load_index()
+        index["skill_runtime"] = {"compiled_version": "0.3.0"}
+        save_index(index, get_index_path())
+
+        gate = resolve.get_update_gate_status(get_version(), index=load_index())
+        self.assertTrue(gate["required"])
+        self.assertEqual(gate["compiled_version"], "0.3.0")
+
+    def test_bootstrap_update_compiles_current_version_into_index(self) -> None:
+        env = dict(os.environ)
+        env["ATTENTION_REPO_STATE_ROOT"] = str(self.state_root)
+        env["OPENCLAW_CONFIG_PATH"] = str(self.openclaw_config_path)
+
+        result = subprocess.run(
+            ["python3", "scripts/jit-context.py", "bootstrap-update"],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        index = load_index()
+        self.assertEqual(index["skill_runtime"]["compiled_version"], get_version())
+        self.assertIn("Gate cleared: yes", result.stdout)
+
+    def test_start_is_blocked_until_bootstrap_after_version_mismatch(self) -> None:
+        index = load_index()
+        index["skill_runtime"] = {"compiled_version": "0.3.0"}
+        save_index(index, get_index_path())
+
+        env = dict(os.environ)
+        env["ATTENTION_REPO_STATE_ROOT"] = str(self.state_root)
+        env["OPENCLAW_CONFIG_PATH"] = str(self.openclaw_config_path)
+
+        result = subprocess.run(
+            ["scripts/attention", "start", str(self.projects_root / "alpha")],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bootstrap-update", result.stdout)
+
     def test_release_attention_marks_repo_as_released(self) -> None:
         repo = self.projects_root / "alpha"
         (repo / "CURRENT_TASK.md").write_text(
@@ -281,6 +362,80 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertIn(str(self.projects_root / "alpha"), result.stdout)
         self.assertIn("verify alias focus path", result.stdout)
         self.assertIn("attention start attnrepo", result.stdout)
+        state = get_attention_state()
+        self.assertEqual(state["active"], "alpha")
+        self.assertEqual(Path(state["active_path"]).resolve(), (self.projects_root / "alpha").resolve())
+
+    def test_release_attention_cli_updates_global_state_note(self) -> None:
+        repo = self.projects_root / "alpha"
+        env = dict(os.environ)
+        env["ATTENTION_REPO_STATE_ROOT"] = str(self.state_root)
+        env["OPENCLAW_CONFIG_PATH"] = str(self.openclaw_config_path)
+
+        subprocess.run(
+            ["scripts/attention", "start", str(repo)],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["scripts/attention", "release-attention", str(repo), "--note", "Wrapped cleanly."],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        state = get_attention_state()
+        self.assertIsNone(state["active"])
+        self.assertEqual(state["release_note"], "Wrapped cleanly.")
+
+    def test_refresh_project_record_ignores_map_sync_newer_than_assemble(self) -> None:
+        repo = self.projects_root / "alpha"
+        map_path = repo / "!MAP.md"
+        map_path.write_text("# !MAP.md\n\n## Entity Registry\n", encoding="utf-8")
+
+        record = resolve.refresh_project_record(
+            "alpha",
+            repo,
+            {
+                "last_assemble": "2026-03-13T11:28:31+00:00",
+                "last_freshness": "2026-03-15T06:46:28+00:00",
+                "last_sync_state": "2099-03-15T06:46:29+00:00",
+            },
+        )
+
+        self.assertFalse(record["stale"])
+        self.assertEqual(record["warnings"], [])
+
+    def test_summarize_current_task_prefers_release_note_when_status_empty(self) -> None:
+        repo = self.projects_root / "alpha"
+        (repo / "CURRENT_TASK.md").write_text(
+            "\n".join(
+                [
+                    "# CURRENT_TASK.md",
+                    "",
+                    "## Status",
+                    "",
+                    "## Attention State",
+                    "- State: Released",
+                    "- Released At: 2026-03-15T06:46:29+00:00",
+                    "- Note: Released via service_router wrap flow",
+                    "",
+                    "## Older Context",
+                    "- Legacy summary that should not win.",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        status, summary = summarize_current_task(repo)
+        self.assertEqual(status, "released")
+        self.assertEqual(summary, "Released via service_router wrap flow")
 
     def test_reinit_rebuilds_corrupt_files_and_salvages_task_excerpt(self) -> None:
         repo = self.projects_root / "alpha"

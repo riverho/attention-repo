@@ -10,8 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from version_info import get_version
+except ModuleNotFoundError:
+    from scripts.version_info import get_version
+
 
 SKILL_ROOT = Path(__file__).parent.parent
+ATTENTION_VERSION = get_version()
 LEGACY_CONFIG_PATH = SKILL_ROOT / "attention-config.json"
 LEGACY_INDEX_PATH = SKILL_ROOT / ".attention" / "index.json"
 DEFAULT_OPENCLAW_ROOT = Path.home() / ".openclaw"
@@ -34,10 +40,26 @@ RESERVED_PROJECT_TOKENS = {
     "yes",
     "y",
 }
+SKILL_RUNTIME_KEY = "skill_runtime"
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def default_skill_runtime_payload(*, timestamp: str | None = None) -> dict[str, Any]:
+    compiled_at = timestamp or utc_now()
+    return {
+        "compiled_version": ATTENTION_VERSION,
+        "compiled_at": compiled_at,
+        "skill_path": str(SKILL_ROOT),
+        "map_path": str(SKILL_ROOT / "!MAP.md"),
+        "task_path": str(SKILL_ROOT / "CURRENT_TASK.md"),
+        "map_valid": (SKILL_ROOT / "!MAP.md").exists(),
+        "task_valid": (SKILL_ROOT / "CURRENT_TASK.md").exists(),
+        "task_status": "",
+        "task_summary": "",
+    }
 
 
 def _expand_path(raw: str | Path) -> Path:
@@ -508,6 +530,7 @@ def default_index_payload() -> dict[str, Any]:
         "created_at": now,
         "last_updated": now,
         "projects": {},
+        SKILL_RUNTIME_KEY: default_skill_runtime_payload(timestamp=now),
     }
 
 
@@ -540,6 +563,51 @@ def save_index(index: dict[str, Any], index_path: Path | None = None) -> Path:
     index["last_updated"] = utc_now()
     path.write_text(json.dumps(index, indent=2, default=str) + "\n", encoding="utf-8")
     return path
+
+
+def get_skill_runtime(index: dict[str, Any] | None = None, index_path: Path | None = None) -> dict[str, Any]:
+    if index is None:
+        index = load_index(index_path)
+    runtime = index.get(SKILL_RUNTIME_KEY, {})
+    return runtime if isinstance(runtime, dict) else {}
+
+
+def get_update_gate_status(
+    deployed_version: str | None = None,
+    index: dict[str, Any] | None = None,
+    index_path: Path | None = None,
+) -> dict[str, Any]:
+    current_version = (deployed_version or ATTENTION_VERSION).strip()
+    runtime = get_skill_runtime(index=index, index_path=index_path)
+    compiled_version = str(runtime.get("compiled_version", "")).strip()
+    needs_bootstrap = compiled_version != current_version
+
+    if not compiled_version:
+        reason = "No compiled skill version recorded in the control plane."
+    elif needs_bootstrap:
+        reason = (
+            f"Compiled skill version is `{compiled_version}`, "
+            f"but deployed skill version is `{current_version}`."
+        )
+    else:
+        reason = ""
+
+    message = (
+        "*Attention Repo update bootstrap required*\n\n"
+        f"Deployed version: `{current_version}`\n"
+        f"Compiled version: `{compiled_version or 'missing'}`\n\n"
+        f"{reason}\n"
+        "Run `scripts/attention bootstrap-update` once to validate local memory and "
+        "recompile the control-plane state for this version."
+    ).strip()
+
+    return {
+        "required": needs_bootstrap,
+        "deployed_version": current_version,
+        "compiled_version": compiled_version,
+        "reason": reason,
+        "message": message,
+    }
 
 
 def resolve_project_name_from_path(repo: Path, config: dict[str, Any] | None = None) -> str | None:
@@ -611,9 +679,16 @@ def summarize_current_task(repo: Path) -> tuple[str, str]:
     elif "in progress" in lowered or "active" in lowered:
         status = "active"
 
-    summary = ""
     status_lines = sections.get("status", [])
-    candidate_lines = status_lines if any(line.strip() for line in status_lines) else text.splitlines()
+    has_status_summary = any(line.strip() for line in status_lines)
+    if status == "released" and not has_status_summary:
+        for raw_line in sections.get("attention state", []) + sections.get("attention", []):
+            line = raw_line.strip()
+            if line.lower().startswith("- note:"):
+                return status, line.split(":", 1)[1].strip()[:240]
+
+    summary = ""
+    candidate_lines = status_lines if has_status_summary else text.splitlines()
     for raw_line in candidate_lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or line.startswith("<!--") or line.startswith("- State:"):
@@ -653,7 +728,16 @@ def refresh_project_record(
     warnings: list[str] = []
     stale = False
 
+    def parse_checkpoint(raw: Any) -> datetime | None:
+        if not isinstance(raw, str) or not raw:
+            return None
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
     last_assemble = record.get("last_assemble")
+    assemble_time = parse_checkpoint(last_assemble)
+    freshness_time = parse_checkpoint(record.get("last_freshness"))
+    sync_time = parse_checkpoint(record.get("last_sync_state"))
+
     if isinstance(last_assemble, str) and last_assemble:
         if _days_since(last_assemble) > 7:
             stale = True
@@ -661,10 +745,13 @@ def refresh_project_record(
         map_path = repo / "!MAP.md"
         if map_path.exists():
             map_mtime = datetime.fromtimestamp(map_path.stat().st_mtime, tz=timezone.utc)
-            assemble_time = datetime.fromisoformat(last_assemble.replace("Z", "+00:00"))
-            if map_mtime > assemble_time:
+            freshness_baseline = max(
+                [checkpoint for checkpoint in (assemble_time, freshness_time, sync_time) if checkpoint is not None],
+                default=None,
+            )
+            if freshness_baseline is not None and map_mtime > freshness_baseline:
                 stale = True
-                warnings.append("!MAP.md modified since last assemble")
+                warnings.append("!MAP.md modified since last verified/synced state")
 
     last_freshness = record.get("last_freshness")
     if isinstance(last_freshness, str) and last_freshness and _days_since(last_freshness) > 7:

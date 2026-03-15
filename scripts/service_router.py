@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Service-aware router for attention_repo skill (v0.3.0).
+Service-aware router for attention_repo skill.
 
 This is the core routing engine that connects user input (from Telegram, 
 WhatsApp, TUI, or CLI) to the attention_repo CLI commands. It provides:
@@ -32,7 +32,6 @@ For the OpenClaw community:
 - OpenClaw should call handle() and use message() tool with buttons for Telegram
 - See SKILL.md for full integration guide
 
-Version: 0.3.0
 Author: OpenClaw Community
 License: MIT
 """
@@ -47,6 +46,8 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from scripts.attention_state import get_state as get_global_attention_state
+    from scripts.version_info import get_version
     from scripts.resolve import (
         detect_project_candidates,
         ensure_index as ensure_central_index,
@@ -54,6 +55,7 @@ try:
         get_index_path,
         get_project_display_name,
         get_project_registry,
+        get_update_gate_status,
         infer_project_scope,
         list_registered_projects as resolve_list_registered_projects,
         load_config as resolve_load_config,
@@ -63,11 +65,14 @@ try:
         reindex_registered_projects,
         refresh_project_record,
         resolve_project_key,
+        resolve_project_name_from_path,
         resolve_project_path,
         save_config,
         summarize_current_task,
     )
 except ModuleNotFoundError:
+    from attention_state import get_state as get_global_attention_state
+    from version_info import get_version
     from resolve import (
         detect_project_candidates,
         ensure_index as ensure_central_index,
@@ -75,6 +80,7 @@ except ModuleNotFoundError:
         get_index_path,
         get_project_display_name,
         get_project_registry,
+        get_update_gate_status,
         infer_project_scope,
         list_registered_projects as resolve_list_registered_projects,
         load_config as resolve_load_config,
@@ -84,6 +90,7 @@ except ModuleNotFoundError:
         reindex_registered_projects,
         refresh_project_record,
         resolve_project_key,
+        resolve_project_name_from_path,
         resolve_project_path,
         save_config,
         summarize_current_task,
@@ -236,6 +243,22 @@ def _clear_pending_confirmation(session: dict) -> None:
     session["pending_confirmation"] = None
 
 
+def _restore_global_attention_session(session: dict) -> str | None:
+    """Resume the active project from global attention state when in-memory session is gone."""
+    state = get_global_attention_state()
+    active_path = state.get("active_path")
+    if not active_path:
+        return None
+    repo = Path(active_path).expanduser()
+    project = resolve_project_name_from_path(repo, _load_config())
+    if not project:
+        return None
+    session["selected_project"] = project
+    session["active_project"] = project
+    session["awaiting_followup"] = True
+    return project
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI Execution
 # ─────────────────────────────────────────────────────────────────────────────
@@ -243,8 +266,10 @@ def _clear_pending_confirmation(session: dict) -> None:
 def run_cli(command: str, project: str, extra_args: list[str] | None = None) -> tuple[str, str, int]:
     """Run attention CLI command. Returns (stdout, stderr, rc)."""
     # Normalize project name to canonical case
-    canonical_project = normalize_project_name(project)
-    cmd = [str(ATTENTION_CLI), command, canonical_project]
+    cmd = [str(ATTENTION_CLI), command]
+    if project:
+        canonical_project = normalize_project_name(project)
+        cmd.append(canonical_project)
     if extra_args:
         cmd.extend(extra_args)
     
@@ -288,7 +313,7 @@ def clear_session(user_id: str):
 # Persistent Index (State Tracking with Timestamps)
 # ─────────────────────────────────────────────────────────────────────────────
 
-ATTENTION_VERSION = "0.3.0"
+ATTENTION_VERSION = get_version()
 STALENESS_DAYS = 7  # Warn if not checked in 7 days
 
 
@@ -788,8 +813,21 @@ def format_main_menu(platform: str) -> RouteResponse:
     """Show simplified top-level menu."""
     index = _load_index()
     
+    # Check global attention state
+    global_state = get_global_attention_state()
+    active_attention = global_state.get("active")
+    active_path = global_state.get("active_path", "")
+    
     lines = [f"*Attention Repo* — v{ATTENTION_VERSION}\n"]
-    lines.append(f"Index updated: {index.get('last_updated', 'unknown')[:10]}")
+    
+    # Show active attention if exists
+    if active_attention:
+        lines.append(f"📍 *Attending:* `{active_attention}`")
+        lines.append(f"   Path: {active_path}")
+    else:
+        lines.append("📍 No active attention")
+    
+    lines.append(f"\nIndex updated: {index.get('last_updated', 'unknown')[:10]}")
     lines.append(f"Registered: {len(index.get('projects', {}))} project(s)\n")
     
     # Check for any stale projects
@@ -819,6 +857,27 @@ def format_main_menu(platform: str) -> RouteResponse:
     )
 
 
+def format_update_gate() -> RouteResponse:
+    gate = get_update_gate_status(ATTENTION_VERSION, index=_load_index())
+    lines = [
+        "*Attention Repo update bootstrap required*",
+        "",
+        f"Deployed version: `{gate['deployed_version']}`",
+        f"Compiled version: `{gate['compiled_version'] or 'missing'}`",
+        "",
+        gate["reason"] or "The control plane has not been compiled for this deployed skill yet.",
+        "",
+        "Run `bootstrap-update` once to validate local `!MAP.md` / `CURRENT_TASK.md` and unlock normal flows.",
+    ]
+    return RouteResponse(
+        text="\n".join(lines),
+        suggest_menu=True,
+        menu_items=[
+            {"label": "🛠 Compile Update", "action": "bootstrap-update", "project": "", "row": 0},
+        ],
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Routing Logic
 # ─────────────────────────────────────────────────────────────────────────────
@@ -832,19 +891,29 @@ def route(request: RouteRequest) -> RouteResponse:
     user_id = request.user_id
     session = get_session(user_id)
     ensure_central_index()
+    lowered_input = text.lower().strip()
 
     try:
         _load_config()
     except FileNotFoundError:
+        if text.startswith("attn:"):
+            parts = text[5:].split(":")
+            action = parts[0] if len(parts) > 0 else ""
+            if action == "bootstrap-update":
+                return execute_intent("bootstrap-update", "", request)
+        if lowered_input == "bootstrap-update":
+            return execute_intent("bootstrap-update", "", request)
         return RouteResponse(
             text=(
                 "*Attention Repo setup required*\n\n"
                 f"Config path: `{get_config_path()}`\n"
                 f"Index path: `{get_index_path()}`\n\n"
-                "Run `scripts/attention init-config` to create the central config, or "
-                "`scripts/attention init --dry-run` to scan default project folders first."
+                "Run `scripts/attention bootstrap-update` to create and compile the control plane, "
+                "or `scripts/attention init-config` if you only want to create the central config first."
             )
         )
+
+    gate = get_update_gate_status(ATTENTION_VERSION, index=_load_index())
 
     # Check for explicit command prefix (handle both dash and underscore variants)
     # Telegram converts /attention-repo to /attention_repo — underscore is canonical
@@ -853,9 +922,19 @@ def route(request: RouteRequest) -> RouteResponse:
         text = text.replace("attention-repo", "attention_repo")
         remainder = text.split(None, 1)[1] if " " in text else ""
         if not remainder:
-            # Bare /attention_repo command - show main menu (not just projects)
-            return format_main_menu(request.platform)
+            return format_update_gate() if gate["required"] else format_main_menu(request.platform)
         text = remainder
+
+    lowered = text.lower().strip()
+    if gate["required"]:
+        if text.startswith("attn:"):
+            parts = text[5:].split(":")
+            action = parts[0] if len(parts) > 0 else ""
+            if action == "bootstrap-update":
+                return execute_intent("bootstrap-update", "", request)
+        if lowered == "bootstrap-update":
+            return execute_intent("bootstrap-update", "", request)
+        return format_update_gate()
 
     if (
         session.get("awaiting_registration")
@@ -892,6 +971,14 @@ def route(request: RouteRequest) -> RouteResponse:
             project = pending_confirmation.get("project")
             _clear_pending_confirmation(session)
             return _cancel_confirmation(request, action, project)
+
+    # Recover focus from global attention state when Telegram/session memory is gone.
+    if (
+        not text.startswith("attn:")
+        and not session.get("pending_confirmation")
+        and not session.get("active_project")
+    ):
+        _restore_global_attention_session(session)
 
     # Follow-up task entry after start flow.
     if session.get("awaiting_followup") and session.get("active_project") and not text.startswith("attn:"):
@@ -961,7 +1048,6 @@ def route(request: RouteRequest) -> RouteResponse:
         if action == "wrap" and canonical_project:
             return _request_confirmation_or_execute("wrap", canonical_project, request)
 
-    lowered = text.lower().strip()
     if lowered == "projects":
         return format_index_menu(build_project_index(), request.platform)
     if lowered == "init":
@@ -1002,6 +1088,37 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
     """Execute the simplified start/init/wrap intent surface."""
     try:
         session = get_session(request.user_id)
+
+        if intent == "bootstrap-update":
+            stdout, stderr, rc = run_cli("bootstrap-update", "")
+            if rc != 0:
+                return RouteResponse(
+                    text=(
+                        "*Attention Repo update bootstrap failed*\n\n"
+                        f"{stderr or stdout}"
+                    ),
+                    structured_data={"command": "bootstrap-update", "rc": rc},
+                    suggest_menu=True,
+                    menu_items=[
+                        {"label": "🛠 Retry Compile", "action": "bootstrap-update", "project": "", "row": 0},
+                    ],
+                )
+            lines = [
+                "*Attention Repo update bootstrap complete*",
+                "",
+                stdout.strip() or "Control plane compiled for the deployed version.",
+                "",
+                "Normal flows are unlocked.",
+            ]
+            return RouteResponse(
+                text="\n".join(lines),
+                structured_data={"command": "bootstrap-update", "rc": 0},
+                suggest_menu=True,
+                menu_items=[
+                    {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+                    {"label": "🧭 Index New", "action": "init", "project": "", "row": 0},
+                ],
+            )
 
         if intent == "init":
             session["awaiting_registration"] = True

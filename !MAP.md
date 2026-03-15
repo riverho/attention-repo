@@ -25,9 +25,9 @@ Lean attention_repo skill for first-principles, CI/CD-aware context assembly.
 - **L4 (Production):** branch protections + tests + deployment verifications enforced.
 
 ## Operational Snapshot
-- **Version:** 0.3.0
-- **Last Sync:** 2026-03-12T10:03:59.116407+00:00
-- **Description:** Added New Idea and List Others menu options
+- **Version:** 0.3.1
+- **Last Sync:** 2026-03-15T18:10:22.978429+00:00
+- **Description:** Wrap-up sync via attention CLI
 - **Status:** Operational
 
 ## Entity Registry

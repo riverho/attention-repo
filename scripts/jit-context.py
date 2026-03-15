@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attention engine v0.3.0: first-principles + CI/CD entity mapping gate."""
+"""Attention engine: first-principles + CI/CD entity mapping gate."""
 
 from __future__ import annotations
 
@@ -23,18 +23,25 @@ try:
         build_default_config,
         central_config_exists,
         detect_project_candidates,
+        ensure_index,
         get_config_path,
         get_entity_resolution_path,
         get_index_path,
+        get_skill_runtime,
+        get_update_gate_status,
         LEGACY_CONFIG_PATH,
+        load_index,
         load_config,
         record_project_operation,
         register_project,
         reindex_registered_projects,
         resolve_project_name_from_path,
+        save_index,
         resolve_project_path,
         save_config,
+        summarize_current_task,
     )
+    from version_info import get_version
 except ImportError as _e:
     resolve_project_path = None
     load_config = None
@@ -42,19 +49,28 @@ except ImportError as _e:
     build_default_config = None
     central_config_exists = None
     detect_project_candidates = None
+    ensure_index = None
     get_config_path = None
     get_index_path = None
+    get_skill_runtime = None
+    get_update_gate_status = None
     record_project_operation = None
     register_project = None
     reindex_registered_projects = None
     resolve_project_name_from_path = None
+    save_index = None
     save_config = None
+    summarize_current_task = None
     LEGACY_CONFIG_PATH = None
+    load_index = None
+    from scripts.version_info import get_version
 
 ENTITY_START = "<!-- ENTITY_REGISTRY_START -->"
 ENTITY_END = "<!-- ENTITY_REGISTRY_END -->"
 ATTN_DIR = ".attention"
 DECLARATION_FILE = "architectural_intent.json"
+ATTENTION_VERSION = get_version()
+SKILL_REPO = _SCRIPT_DIR.parent
 
 
 def utc_now() -> str:
@@ -253,6 +269,50 @@ def extract_recovered_excerpt(text: str, *, max_chars: int = 1200) -> str:
     if len(excerpt) > max_chars:
         excerpt = excerpt[:max_chars].rstrip() + "..."
     return excerpt
+
+
+def _repair_local_memory(repo: Path) -> list[str]:
+    map_path = repo / "!MAP.md"
+    task_path = repo / "CURRENT_TASK.md"
+    recovery_root = repo / ATTN_DIR / "recovery" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    repaired: list[str] = []
+
+    map_text = read_text(map_path)
+    task_text = read_text(task_path)
+    map_valid = is_map_valid(map_text)
+    task_valid = is_task_valid(task_text)
+
+    if map_valid and task_valid:
+        return repaired
+
+    recovery_root.mkdir(parents=True, exist_ok=True)
+    for path in (
+        map_path,
+        task_path,
+        repo / ATTN_DIR / "map_freshness.json",
+        repo / ATTN_DIR / "ATTENTION_FINALIZE.md",
+    ):
+        if not path.exists():
+            continue
+        target = recovery_root / path.relative_to(repo)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+
+    if not map_valid:
+        write_text(map_path, default_map_template())
+        repaired.append("!MAP.md")
+
+    if not task_valid:
+        recovered_excerpt = extract_recovered_excerpt(task_text)
+        next_task = recovered_task_template(recovered_excerpt) if recovered_excerpt else default_task_template()
+        write_text(task_path, next_task)
+        repaired.append("CURRENT_TASK.md")
+
+    for stale_path in (repo / ATTN_DIR / "map_freshness.json", repo / ATTN_DIR / "ATTENTION_FINALIZE.md"):
+        if stale_path.exists():
+            stale_path.unlink()
+
+    return repaired
 
 
 def ensure_templates(repo: Path) -> None:
@@ -776,7 +836,7 @@ def cmd_sync_state(args: argparse.Namespace) -> None:
     """Sync !MAP.md, CURRENT_TASK.md, and index with timestamps and version."""
     repo = resolve_repo(args.repo)
     now = utc_now()
-    version = args.version or "0.3.0"
+    version = args.version or ATTENTION_VERSION
     description = args.description or "Synced state"
     
     # 1. Update !MAP.md with operational snapshot
@@ -972,8 +1032,68 @@ def cmd_reindex(args: argparse.Namespace) -> None:
     print(f"Reindexed {len(config.get('projects', {}))} project(s): {index_path}")
 
 
+def cmd_bootstrap_update(args: argparse.Namespace) -> None:
+    if (
+        build_default_config is None
+        or save_config is None
+        or ensure_index is None
+        or load_index is None
+        or save_index is None
+        or get_update_gate_status is None
+        or summarize_current_task is None
+    ):
+        raise RuntimeError("Update bootstrap helpers are unavailable.")
+
+    config_created = False
+    if central_config_exists is None or not central_config_exists():
+        config = build_default_config()
+        save_config(config)
+        config_created = True
+    else:
+        config = load_config()
+
+    repaired = _repair_local_memory(SKILL_REPO)
+
+    if reindex_registered_projects is not None:
+        reindex_registered_projects(config)
+    ensure_index()
+    index = load_index()
+
+    task_status, task_summary = summarize_current_task(SKILL_REPO)
+    index["skill_runtime"] = {
+        "compiled_version": ATTENTION_VERSION,
+        "compiled_at": utc_now(),
+        "skill_path": str(SKILL_REPO),
+        "map_path": str(SKILL_REPO / "!MAP.md"),
+        "task_path": str(SKILL_REPO / "CURRENT_TASK.md"),
+        "map_valid": is_map_valid(read_text(SKILL_REPO / "!MAP.md")),
+        "task_valid": is_task_valid(read_text(SKILL_REPO / "CURRENT_TASK.md")),
+        "task_status": task_status,
+        "task_summary": task_summary,
+    }
+    save_index(index)
+
+    gate = get_update_gate_status(ATTENTION_VERSION, index=index)
+
+    print(f"Bootstrapped attention-repo control plane for v{ATTENTION_VERSION}")
+    if config_created and get_config_path is not None:
+        print(f"Created config: {get_config_path()}")
+    if get_index_path is not None:
+        print(f"Updated index: {get_index_path()}")
+    print(f"Skill path: {SKILL_REPO}")
+    if repaired:
+        print("Repaired local memory:")
+        for item in repaired:
+            print(f"- {item}")
+    else:
+        print("Local memory: already valid")
+    print(f"Task status: {task_status or 'unknown'}")
+    print(f"Task summary: {task_summary or '<none>'}")
+    print(f"Gate cleared: {'yes' if not gate['required'] else 'no'}")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Attention-repo JIT context assembler (v0.3.0)")
+    parser = argparse.ArgumentParser(description=f"Attention-repo JIT context assembler (v{ATTENTION_VERSION})")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init_cfg = sub.add_parser("init-config", help="Create central attention-repo config")
@@ -1035,8 +1155,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sync = sub.add_parser("sync-state", help="Sync !MAP.md, CURRENT_TASK.md, and index with timestamps")
     p_sync.add_argument("repo")
-    p_sync.add_argument("--version", default="0.3.0", help="Version to record")
+    p_sync.add_argument("--version", default=None, help="Version to record; defaults to version.json")
     p_sync.add_argument("--description", default="", help="Description of current state")
+
+    sub.add_parser("bootstrap-update", help="Validate local skill memory and compile the control plane for the deployed version")
 
     p_repair = sub.add_parser("repair", help="Backfill missing project files for registered projects")
 
@@ -1101,6 +1223,10 @@ def main() -> None:
 
     if args.command == "sync-state":
         cmd_sync_state(args)
+        return
+
+    if args.command == "bootstrap-update":
+        cmd_bootstrap_update(args)
         return
 
     if args.command == "repair":

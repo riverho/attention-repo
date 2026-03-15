@@ -2,10 +2,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION="$(python3 "$SCRIPT_DIR/version_info.py")"
 
 show_help() {
-  cat <<'EOF'
-attention - attention repo CLI (v0.3.0)
+  cat <<EOF
+attention - attention repo CLI (v${VERSION})
 
 USAGE:
   attention <command> [args]
@@ -13,6 +14,7 @@ USAGE:
 COMMANDS:
   init [repo-path] [--include-skills] [--include-plugins] [--dry-run]
   init-config [--force]
+  bootstrap-update
   start <repo-path> [task...]
   wrap <repo-path>
   declare-intent <repo-path> --affected-entities ... --deployment-pipeline ... --first-principle-summary ... --requires-new-entity true|false [--task-type code|docs|tests]
@@ -32,13 +34,31 @@ EXAMPLES:
   attention init-config
   attention init --dry-run
   attention init
+  attention bootstrap-update
   attention start . "Summarize the new central config/index flow and trim stale menu paths."
   attention wrap .
   attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
   attention assemble ~/code/repo
   attention update-task ~/code/repo --status-markdown "Mapped entities and started auth middleware edits."
-  attention sync-state . --version 0.3.0 --description "Menu-first UX with Telegram inline keyboards"
+  attention sync-state . --description "Menu-first UX with Telegram inline keyboards"
 EOF
+}
+
+show_update_gate() {
+  python3 - "$SCRIPT_DIR" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+from resolve import get_update_gate_status
+from version_info import get_version
+
+gate = get_update_gate_status(get_version())
+if gate["required"]:
+    print(gate["message"])
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
 }
 
 if [ $# -lt 1 ]; then
@@ -50,11 +70,24 @@ cmd="$1"
 shift
 
 case "$cmd" in
+  bootstrap-update|init-config|-h|--help|help)
+    ;;
+  *)
+    if show_update_gate; then
+      exit 1
+    fi
+    ;;
+esac
+
+case "$cmd" in
   init)
     python3 "$SCRIPT_DIR/jit-context.py" init "$@"
     ;;
   init-config)
     python3 "$SCRIPT_DIR/jit-context.py" init-config "$@"
+    ;;
+  bootstrap-update)
+    python3 "$SCRIPT_DIR/jit-context.py" bootstrap-update "$@"
     ;;
   start)
     if [ $# -lt 1 ]; then
@@ -79,6 +112,8 @@ else:
     print(resolve_project_path(repo_arg))
 PY
 )"
+    # Set global attention state
+    python3 "$SCRIPT_DIR/attention-state.py" set "$resolved_repo"
     if [ $# -eq 0 ]; then
       echo "Project focus: $resolved_repo"
       if [ -f "$resolved_repo/CURRENT_TASK.md" ]; then
@@ -122,6 +157,8 @@ PY
     ;;
   release-attention)
     python3 "$SCRIPT_DIR/jit-context.py" release-attention "$@"
+    # Clear global attention state
+    python3 "$SCRIPT_DIR/attention-state.py" release "$@"
     ;;
   sync-state)
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$@"
@@ -137,6 +174,8 @@ PY
     python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$repo" --tests-result not_run --notes "Wrapped via attention CLI"
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$repo" --description "Wrap-up sync via attention CLI"
     python3 "$SCRIPT_DIR/jit-context.py" release-attention "$repo" --note "Released via attention CLI wrap flow"
+    # Clear global attention state
+    python3 "$SCRIPT_DIR/attention-state.py" release
     ;;
   repair)
     python3 "$SCRIPT_DIR/jit-context.py" repair "$@"

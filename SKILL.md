@@ -1,10 +1,10 @@
 ---
-name: attention_repo
+name: attention-repo
 description: First-principles, CI/CD-entity aware attention repo with mandatory architectural intent declaration
 user-invocable: true
 ---
 
-# Attention Repo (v0.3.0)
+# Attention Repo
 
 **First-principles, CI/CD-entity aware attention repo with mandatory architectural intent declaration.**
 
@@ -25,6 +25,9 @@ scripts/attention init-config
 # Register/discover projects into the official central config
 scripts/attention init --dry-run
 scripts/attention reindex
+
+# First run after a deployed update
+scripts/attention bootstrap-update
 
 # Start using
 /attention_repo                    # Main menu
@@ -97,7 +100,7 @@ Rules:
 Type `/attention_repo` to see:
 
 ```
-*Attention Repo* — v0.3.0
+*Attention Repo* — v<current>
 
 Index updated: 2026-03-08
 Registered: 2 project(s)
@@ -151,8 +154,10 @@ attention finalize-change <repo> \
 
 # Sync all state files (!MAP.md, CURRENT_TASK.md, index.json)
 attention sync-state <repo> \
-  --version 0.3.0 \
   --description "Menu-first UX with Telegram integration"
+
+# Compile control-plane state after a deployed skill update
+attention bootstrap-update
 
 # Clear task file
 attention clear-task <repo>

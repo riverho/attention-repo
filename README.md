@@ -2,6 +2,8 @@
 
 *Lean attention repo for first-principles, CI/CD-aware coding workflows.*
 
+Canonical version metadata lives in [`version.json`](./version.json).
+
 ## Theory
 
 attention-repo implements a three-phase architecture for agent attention:
@@ -31,6 +33,12 @@ See `~/.openclaw/workspace/notes/attention-research/` for detailed research note
 - Maps work to existing entities in `!MAP.md`.
 - Injects relevant CI/CD and runtime files into task context.
 - Produces a deterministic finalize report.
+
+## Versioning
+- `version.json` is the canonical version source for the repo.
+- Runtime surfaces read from `version.json`; they do not own version strings.
+- `scripts/attention sync-state` uses the canonical version by default, so normal release flows do not need `--version`.
+- After a deployed skill update, the first normal run is gated until `scripts/attention bootstrap-update` compiles the control-plane state for the new version.
 
 ## Init
 Run once in a target repo:
@@ -147,6 +155,22 @@ Examples:
 scripts/attention start .
 scripts/attention start . "Fix Telegram registration routing and verify menu state"
 ```
+
+### `bootstrap-update`
+Command:
+
+```bash
+scripts/attention bootstrap-update
+```
+
+What it does:
+
+- validates the deployed skill's local `!MAP.md` and `CURRENT_TASK.md`
+- repairs those files safely if they are invalid
+- recompiles the central control-plane state for the deployed `version.json`
+- clears the post-update gate so normal `start` / menu flows can resume
+
+Use it once after deploying a new skill version when attention-repo tells you the update bootstrap is required.
 
 ### `wrap`
 Command:

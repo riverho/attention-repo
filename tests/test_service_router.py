@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.service_router import RouteRequest, _user_sessions, route
+from scripts.version_info import get_version
 from scripts.openclaw_router_bridge import _rewrite_buttons
 
 
@@ -55,6 +56,17 @@ class ServiceRouterTests(unittest.TestCase):
                             "source": "test",
                         }
                     },
+                },
+                handle,
+            )
+        with open(state_root_path / "index.json", "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "version": "1",
+                    "created_at": "2026-03-15T07:00:00+00:00",
+                    "last_updated": "2026-03-15T07:00:00+00:00",
+                    "projects": {},
+                    "skill_runtime": {"compiled_version": get_version()},
                 },
                 handle,
             )
@@ -145,6 +157,109 @@ class ServiceRouterTests(unittest.TestCase):
         response = route(RouteRequest(text="attn:list-projects:", user_id="test-list", platform="telegram"))
         self.assertIn("choose a repo to start", response.text)
         self.assertTrue(response.suggest_menu)
+
+    def test_main_menu_shows_active_attention_from_state_root(self) -> None:
+        state_path = Path(self.state_root) / ".attention-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "active": "attention_repo",
+                    "active_path": str(self.project_root),
+                    "attended_at": "2026-03-15T07:00:00+00:00",
+                    "attended_repos": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        response = route(RouteRequest(text="/attention_repo", user_id="test-main-menu", platform="telegram"))
+        self.assertIn("Attending", response.text)
+        self.assertIn("attention_repo", response.text)
+        self.assertIn(str(self.project_root), response.text)
+
+    def test_main_menu_gates_when_compiled_version_is_stale(self) -> None:
+        state_path = Path(self.state_root) / "index.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "version": "1",
+                    "created_at": "2026-03-15T07:00:00+00:00",
+                    "last_updated": "2026-03-15T07:00:00+00:00",
+                    "projects": {},
+                    "skill_runtime": {"compiled_version": "0.3.0"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        response = route(RouteRequest(text="/attention_repo", user_id="test-gate-menu", platform="telegram"))
+        self.assertIn("bootstrap required", response.text.lower())
+        self.assertIn("0.3.0", response.text)
+        self.assertTrue(response.suggest_menu)
+
+    @patch("scripts.service_router.run_cli")
+    def test_bootstrap_update_action_executes_when_gate_is_active(self, run_cli) -> None:
+        state_path = Path(self.state_root) / "index.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "version": "1",
+                    "created_at": "2026-03-15T07:00:00+00:00",
+                    "last_updated": "2026-03-15T07:00:00+00:00",
+                    "projects": {},
+                    "skill_runtime": {"compiled_version": "0.3.0"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        run_cli.return_value = (
+            f"Bootstrapped attention-repo control plane for v{get_version()}\nGate cleared: yes",
+            "",
+            0,
+        )
+
+        response = route(
+            RouteRequest(text="attn:bootstrap-update:", user_id="test-bootstrap-update", platform="telegram")
+        )
+
+        self.assertIn("bootstrap complete", response.text.lower())
+        self.assertIn("Gate cleared: yes", response.text)
+        self.assertEqual(response.structured_data["command"], "bootstrap-update")
+
+    @patch("scripts.service_router.run_cli")
+    def test_global_attention_state_restores_follow_up_after_session_loss(self, run_cli) -> None:
+        state_path = Path(self.state_root) / ".attention-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "active": "attention_repo",
+                    "active_path": str(self.project_root),
+                    "attended_at": "2026-03-15T07:00:00+00:00",
+                    "attended_repos": {},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        run_cli.side_effect = [
+            ("task-saved", "", 0),
+            ("assemble-complete", "", 0),
+        ]
+
+        response = route(
+            RouteRequest(
+                text="Fix Telegram persistence after process restart",
+                user_id="test-global-resume",
+                platform="telegram",
+            )
+        )
+
+        self.assertIn("Saved your focus and refreshed project context.", response.text)
+        self.assertEqual(run_cli.call_args_list[0].args[0], "update-task")
+        self.assertEqual(run_cli.call_args_list[0].args[1], "attention_repo")
+        self.assertEqual(run_cli.call_args_list[1].args[0], "assemble")
 
     def test_init_shows_registration_scan(self) -> None:
         skill_root = Path(self._tmpdir.name) / "workspace" / "skills" / "attention-repo"

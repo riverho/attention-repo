@@ -1,4 +1,4 @@
-# Summon Integration (Attention-repo v0.3.0)
+# Summon Integration
 
 Use one autonomous engineer session with an explicit declaration gate.
 
