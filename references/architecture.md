@@ -1,4 +1,4 @@
-# Attention-layer v0.3.0 Architecture
+# Attention-repo v0.3.0 Architecture
 
 ## Objective
 Implement a strict OODA loop with CI/CD entity mapping as a write gate.

@@ -21,7 +21,7 @@ def _rewrite_buttons(button_rows: list[list[dict]]) -> list[list[dict]]:
         for button in row:
             callback_data = str(button.get("callback_data", "")).strip()
             if callback_data:
-                callback_data = f"/attention_layer {callback_data}"
+                callback_data = f"/attention_repo {callback_data}"
             next_row.append(
                 {
                     "text": str(button.get("text", "")),

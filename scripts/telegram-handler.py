@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram bot handler for attention_layer skill.
+Telegram bot handler for attention_repo skill.
 
 THIN wrapper around service_router.py. No business logic here.
 """
@@ -59,10 +59,10 @@ def handle_telegram_message(chat_id: str, user_id: str, text: str) -> dict:
     if not is_authorized(user_id):
         return {"chat_id": chat_id, "text": "⛔ Not authorized"}
     
-    # Strip /attention or /attention_layer prefix if present
-    if text.startswith(("/attention_layer", "/attention ", "!attention ")):
-        if text.startswith("/attention_layer"):
-            text = text[len("/attention_layer"):].strip()
+    # Strip /attention or /attention_repo prefix if present
+    if text.startswith(("/attention_repo", "/attention ", "!attention ")):
+        if text.startswith("/attention_repo"):
+            text = text[len("/attention_repo"):].strip()
         else:
             text = text.split(None, 1)[1] if " " in text else ""
     
@@ -148,7 +148,7 @@ async def attention_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # Setup
 app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-app.add_handler(CommandHandler("attention_layer", attention_command))
+app.add_handler(CommandHandler("attention_repo", attention_command))
 app.add_handler(CallbackQueryHandler(attention_callback, pattern="^attn:"))
 app.run_polling()
 """
@@ -165,15 +165,15 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Test 1: /attention command - shows index menu
-    print("\n1. User: /attention_layer")
+    print("\n1. User: /attention_repo")
     print("   Expected: Show project index menu (fast, no !MAP.md reads)")
-    result = handle_telegram_message("12345", "user-1", "/attention_layer")
+    result = handle_telegram_message("12345", "user-1", "/attention_repo")
     print(f"   Bot: {result['text'][:80]}...")
     
-    # Test 2: Select project - show actions
-    print("\n2. User: [clicks project button] → show-actions summon-A2A-academy")
-    print("   Expected: Show available actions for project")
-    result = handle_telegram_message("12345", "user-1", "show-actions summon-A2A-academy")
+    # Test 2: Select project - click Projects button, then choose project
+    print("\n2. User: [clicks Projects button] → list-projects")
+    print("   Expected: Show registered projects")
+    result = handle_telegram_message("12345", "user-1", "list-projects")
     print(f"   Bot: {result['text'][:60]}...")
     
     # Test 3: Select action - intent declaration (confirmation required)

@@ -1,12 +1,14 @@
 # !MAP.md
 
 ## Purpose
-Lean attention_layer skill for first-principles, CI/CD-aware context assembly.
+Lean attention_repo skill for first-principles, CI/CD-aware context assembly.
 
 ## Core Commands
 - `scripts/attention start <repo> [task...]`
 - `scripts/attention init`
+- `scripts/attention reinit <repo> [--no-salvage-task] [--no-auto-assemble]`
 - `scripts/attention wrap <repo>`
+- `scripts/attention release-attention <repo> [--note "..."]`
 - Internal workflow commands remain available in `scripts/jit-context.py` for low-level repair and debugging.
 
 ## Architecture Boundaries
@@ -14,6 +16,7 @@ Lean attention_layer skill for first-principles, CI/CD-aware context assembly.
 - No multi-agent chained funnel.
 - No markdown significance scoring.
 - No write/edit workflow without architectural declaration.
+- No implicit repo focus switch in Telegram or TUI without explicit confirmation.
 
 ## Maturity Model
 - **L1 (Prototype):** no entity mapping, no CI/CD mapping.
@@ -23,8 +26,8 @@ Lean attention_layer skill for first-principles, CI/CD-aware context assembly.
 
 ## Operational Snapshot
 - **Version:** 0.3.0
-- **Last Sync:** 2026-03-09T04:19:49.803292+00:00
-- **Description:** Wrap-up sync via attention CLI
+- **Last Sync:** 2026-03-12T10:03:59.116407+00:00
+- **Description:** Added New Idea and List Others menu options
 - **Status:** Operational
 
 ## Entity Registry
@@ -50,10 +53,10 @@ Lean attention_layer skill for first-principles, CI/CD-aware context assembly.
     {
       "id": "E-ATTN-PLUGIN-01",
       "type": "Plugin",
-      "file_path": "openclaw-plugin/attention-layer-telegram/index.ts",
+      "file_path": "openclaw-plugin/attention-repo-telegram/index.ts",
       "ci_cd": ".github/workflows/ci.yml",
-      "endpoint": "/attention_layer",
-      "description": "OpenClaw plugin bridge that owns Telegram /attention_layer and routes inline callbacks through service_router."
+      "endpoint": "/attention_repo",
+      "description": "OpenClaw plugin bridge that owns Telegram /attention_repo and routes inline callbacks through service_router."
     }
   ]
 }

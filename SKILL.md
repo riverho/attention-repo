@@ -1,12 +1,12 @@
 ---
-name: attention_layer
-description: First-principles, CI/CD-entity aware attention layer with mandatory architectural intent declaration
+name: attention_repo
+description: First-principles, CI/CD-entity aware attention repo with mandatory architectural intent declaration
 user-invocable: true
 ---
 
-# Attention Layer (v0.3.0)
+# Attention Repo (v0.3.0)
 
-**First-principles, CI/CD-entity aware attention layer with mandatory architectural intent declaration.**
+**First-principles, CI/CD-entity aware attention repo with mandatory architectural intent declaration.**
 
 > *"Before touching code, declare your intent. After changing code, verify your map."*
 
@@ -16,28 +16,26 @@ user-invocable: true
 
 ```bash
 # Install (as OpenClaw skill)
-git clone https://github.com/openclaw/attention_layer ~/.openclaw/skills/attention_layer
+git clone https://github.com/openclaw/attention_repo ~/.openclaw/skills/attention_repo
 
-# Register your project
-echo '{
-  "project_registry": {
-    "my-project": {
-      "canonical_path": "/path/to/project",
-      "source_strategy": "local_only"
-    }
-  }
-}' > ~/.openclaw/skills/attention_layer/attention-config.json
+# Create official central control-plane config
+cd ~/.openclaw/workspace/skills/attention-repo
+scripts/attention init-config
+
+# Register/discover projects into the official central config
+scripts/attention init --dry-run
+scripts/attention reindex
 
 # Start using
-/attention_layer                    # Main menu
-/attention_layer assemble my-project
+/attention_repo                    # Main menu
+/attention_repo assemble my-project
 ```
 
 ---
 
-## What is Attention Layer?
+## What is Attention Repo?
 
-Attention Layer forces a strict **OODA loop** (Observe → Orient → Decide → Act) where code edits are gated by:
+Attention Repo forces a strict **OODA loop** (Observe → Orient → Decide → Act) where code edits are gated by:
 
 1. **Architectural intent declaration** — What are you changing and why?
 2. **CI/CD entity mapping** — Which deployment boundaries are affected?
@@ -46,7 +44,7 @@ Attention Layer forces a strict **OODA loop** (Observe → Orient → Decide →
 
 ### When to Use
 
-| Stage | Use Attention Layer? | Why |
+| Stage | Use Attention Repo? | Why |
 |-------|---------------------|-----|
 | **L1 Prototype** | Optional | Move fast, no gates |
 | **L2 Structured** | Recommended | Entity registry exists |
@@ -79,13 +77,16 @@ Tracks the current change:
 - Architectural intent summary
 - Sync timestamps
 
-### 3. .attention/index.json — The State Machine
+### 3. Central Control Plane — The Shared State
 
-Persistent index tracking:
-- All operations with timestamps
-- Staleness detection (>7 days = warning)
-- Sync history (last 10 entries)
-- Project operational state
+Lives under `~/.openclaw/attention-repo/`:
+- `config.json` — persistent source of truth for registered projects and discovery settings
+- `index.json` — derived runtime/status projection for menu rendering and stale-state reporting
+
+Rules:
+- Registering a project updates `config.json`
+- Reindexing or normal operations refresh `index.json`
+- If the two files disagree, `config.json` is authoritative
 
 ---
 
@@ -93,10 +94,10 @@ Persistent index tracking:
 
 ### Main Menu (Telegram)
 
-Type `/attention_layer` to see:
+Type `/attention_repo` to see:
 
 ```
-*Attention Layer* — v0.3.0
+*Attention Repo* — v0.3.0
 
 Index updated: 2026-03-08
 Registered: 2 project(s)
@@ -106,7 +107,7 @@ Registered: 2 project(s)
 [▶️ Declare]   [🏁 Finalize]
 ```
 
-**Telegram:** Use `/attention_layer` (underscore is canonical)
+**Telegram:** Use `/attention_repo` (underscore is canonical)
 
 ---
 
@@ -187,7 +188,7 @@ attention clear-task <repo>
 | **Inline Keyboards** | 2-column button layout for compact menus |
 | **Callback Handling** | Button clicks route back to service router |
 | **Session Persistence** | Multi-turn conversations work across messages |
-| **Command Normalization** | `/attention_layer` → `/attention_layer` both work |
+| **Command Normalization** | `/attention_repo` → `/attention_repo` both work |
 | **Staleness Indicators** | 🔴 for stale, 🟢/✅/⚪ for status |
 
 ### Telegram Flow
@@ -218,7 +219,7 @@ Bot: [SYSTEM PROMPT]
 
 ### Why Combine with AO?
 
-**Attention Layer** = Guards architectural intent and tracks state
+**Attention Repo** = Guards architectural intent and tracks state
 **Agent Orchestration** = Manages distributed agent swarms
 
 Together they enable **L3+ Operational** multi-agent workflows:
@@ -228,13 +229,13 @@ River: "Build me a payment system"
   ↓
 Brad (Orchestrator)
   ├─ Spawns: ArchitectureAgent
-  │   └─ Uses Attention Layer
+  │   └─ Uses Attention Repo
   │       ├─ declare-intent for payment-api
   │       ├─ register-new-entity E-STRIPE-HOOK
   │       └─ assemble → returns context
   │
   ├─ Spawns: BackendAgent
-  │   └─ Uses Attention Layer
+  │   └─ Uses Attention Repo
   │       ├─ declare-intent references E-STRIPE-HOOK
   │       ├─ update-task "Implementing webhook handler"
   │       └─ finalize-change on completion
@@ -248,12 +249,12 @@ Brad (Orchestrator)
 
 ### Integration Points
 
-| AO Feature | Attention Layer Role |
+| AO Feature | Attention Repo Role |
 |------------|---------------------|
 | **Session spawn** | Each agent calls `declare-intent` before work |
 | **Progress tracking** | `update-task` feeds AO status dashboard |
 | **Completion** | `finalize-change` generates AO-compatible reports |
-| **State persistence** | `.attention/index.json` survives session restarts |
+| **State persistence** | `~/.openclaw/attention-repo/index.json` survives session restarts |
 | **Conflict detection** | Staleness warnings prevent concurrent edit conflicts |
 
 ### Recommended AO + Attention Flow
@@ -285,33 +286,34 @@ on_heartbeat:
 
 ## Configuration
 
-### attention-config.json
+### Central config.json
 
 ```json
 {
-  "$schema": "attention_layer-config-v1",
-  "project_registry": {
+  "$schema": "attention-repo-config-v3",
+  "paths": {
+    "state_root": "/Users/me/.openclaw/attention-repo",
+    "default_scan_roots": [
+      "/Users/me/.openclaw/workspace/projects"
+    ],
+    "optional_scan_roots": {
+      "skills": "/Users/me/.openclaw/workspace/skills",
+      "plugins": "/Users/me/.openclaw/plugins"
+    }
+  },
+  "projects": {
     "my-api": {
       "canonical_path": "/Users/me/projects/my-api",
-      "git_remote": "https://github.com/me/my-api.git",
       "source_strategy": "local_only",
-      "entity_resolution": {
-        "!MAP.md": "${canonical_path}/!MAP.md"
-      }
+      "scope": "projects",
+      "menu_visible": true
     },
     "my-frontend": {
       "canonical_path": "/Users/me/projects/my-frontend",
-      "source_strategy": "git_clone_if_missing",
-      "git_remote": "https://github.com/me/my-frontend.git"
+      "source_strategy": "local_only",
+      "scope": "projects",
+      "menu_visible": true
     }
-  },
-  "path_resolution": {
-    "order": ["canonical_path", "workspace_projects", "git_clone"],
-    "forbid_disk_wide_search": true
-  },
-  "validation": {
-    "require_canonical_path_exists": true,
-    "stale_threshold_days": 7
   }
 }
 ```
@@ -320,7 +322,7 @@ on_heartbeat:
 
 ## Maturity Levels
 
-### L1 Prototype (No Attention Layer)
+### L1 Prototype (No Attention Repo)
 ```
 River: "Build X"
 Agent: [edits code]
@@ -360,7 +362,7 @@ Brad: Collects finalize reports
 ## Troubleshooting
 
 ### "Cannot resolve: my-project"
-Add to `attention-config.json`:
+Add to `~/.openclaw/attention-repo/config.json`:
 ```json
 "my-project": {
   "canonical_path": "/absolute/path/to/project",
@@ -377,7 +379,7 @@ attention map-freshness-check <repo> --no-change-justification "Legacy shim unch
 ### Telegram buttons not appearing
 - Check `ATTENTION_TELEGRAM_BOT_TOKEN` is set
 - Verify bot has inline keyboard permissions
-- Try both `/attention_layer` and `/attention_layer`
+- Try both `/attention_repo` and `/attention_repo`
 
 ### Index out of sync
 ```bash
@@ -400,7 +402,7 @@ attention sync-state <repo> --version $(git describe --tags) --description "Manu
 
 ## Contributing
 
-1. Fork `openclaw/attention_layer`
+1. Fork `openclaw/attention_repo`
 2. Create feature branch
 3. Run `attention declare-intent` before changes
 4. Implement + test

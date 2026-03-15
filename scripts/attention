@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 show_help() {
   cat <<'EOF'
-attention - attention layer CLI (v0.3.0)
+attention - attention repo CLI (v0.3.0)
 
 USAGE:
   attention <command> [args]
@@ -22,6 +22,8 @@ COMMANDS:
   map-freshness-check <repo-path> [--no-change-justification "..."]
   finalize-change <repo-path> [--tests-command ...] [--tests-result pass|fail|not_run] [--notes ...]
   clear-task <repo-path>
+  reinit <repo-path> [--no-salvage-task] [--no-auto-assemble]
+  release-attention <repo-path> [--note "..."]
   sync-state <repo-path> [--version X.Y.Z] [--description "..."]
   repair
   reindex
@@ -62,14 +64,32 @@ case "$cmd" in
     repo="$1"
     shift
     python3 "$SCRIPT_DIR/jit-context.py" reindex >/dev/null 2>&1 || true
+    resolved_repo="$(python3 - "$SCRIPT_DIR" "$repo" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from resolve import resolve_project_path
+
+repo_arg = sys.argv[2]
+path = Path(repo_arg).expanduser()
+if path.exists():
+    print(path.resolve())
+else:
+    print(resolve_project_path(repo_arg))
+PY
+)"
     if [ $# -eq 0 ]; then
-      echo "Project focus: $repo"
-      if [ -f "$repo/CURRENT_TASK.md" ]; then
+      echo "Project focus: $resolved_repo"
+      if [ -f "$resolved_repo/CURRENT_TASK.md" ]; then
         echo
-        sed -n '1,160p' "$repo/CURRENT_TASK.md"
+        sed -n '1,160p' "$resolved_repo/CURRENT_TASK.md"
       else
-        echo "No CURRENT_TASK.md found."
+        echo "No active task yet."
       fi
+      echo
+      echo "Reply with what you want to work on next, or run:"
+      echo "  attention start $repo \"<task>\""
       exit 0
     fi
     task="$*"
@@ -97,6 +117,12 @@ case "$cmd" in
   clear-task)
     python3 "$SCRIPT_DIR/jit-context.py" clear-task "$@"
     ;;
+  reinit)
+    python3 "$SCRIPT_DIR/jit-context.py" reinit "$@"
+    ;;
+  release-attention)
+    python3 "$SCRIPT_DIR/jit-context.py" release-attention "$@"
+    ;;
   sync-state)
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$@"
     ;;
@@ -110,6 +136,7 @@ case "$cmd" in
     python3 "$SCRIPT_DIR/jit-context.py" map-freshness-check "$repo" "$@"
     python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$repo" --tests-result not_run --notes "Wrapped via attention CLI"
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$repo" --description "Wrap-up sync via attention CLI"
+    python3 "$SCRIPT_DIR/jit-context.py" release-attention "$repo" --note "Released via attention CLI wrap flow"
     ;;
   repair)
     python3 "$SCRIPT_DIR/jit-context.py" repair "$@"

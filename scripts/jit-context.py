@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -25,6 +26,7 @@ try:
         get_config_path,
         get_entity_resolution_path,
         get_index_path,
+        LEGACY_CONFIG_PATH,
         load_config,
         record_project_operation,
         register_project,
@@ -47,6 +49,7 @@ except ImportError as _e:
     reindex_registered_projects = None
     resolve_project_name_from_path = None
     save_config = None
+    LEGACY_CONFIG_PATH = None
 
 ENTITY_START = "<!-- ENTITY_REGISTRY_START -->"
 ENTITY_END = "<!-- ENTITY_REGISTRY_END -->"
@@ -67,6 +70,17 @@ def read_text(path: Path) -> str:
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def replace_markdown_section(text: str, heading: str, body: str) -> str:
+    section = f"## {heading}\n{body.strip()}\n"
+    pattern = re.compile(rf"## {re.escape(heading)}\n.*?(?=\n## |\Z)", re.DOTALL)
+    if pattern.search(text):
+        return pattern.sub(section, text).rstrip() + "\n"
+    base = text.rstrip()
+    if base:
+        base += "\n\n"
+    return base + section
 
 
 def run_git(repo: Path, *args: str) -> str:
@@ -150,17 +164,11 @@ def write_entity_registry(map_path: Path, registry: dict[str, Any]) -> None:
     write_text(map_path, next_text)
 
 
-def ensure_templates(repo: Path) -> None:
-    map_path = repo / "!MAP.md"
-    task_path = repo / "CURRENT_TASK.md"
-
-    if not map_path.exists():
-        write_text(
-            map_path,
-            """# !MAP.md
+def default_map_template() -> str:
+    return """# !MAP.md
 
 ## Purpose
-Describe what this repository is for.
+Document the repository purpose and operational boundaries here.
 
 ## Runbook
 - Build: `...`
@@ -177,25 +185,14 @@ Describe what this repository is for.
 ## Entity Registry
 <!-- ENTITY_REGISTRY_START -->
 {
-  "entities": [
-    {
-      "id": "E-EXAMPLE-01",
-      "type": "Endpoint",
-      "file_path": "src/example.ts",
-      "ci_cd": ".github/workflows/ci.yml",
-      "endpoint": "GET /example",
-      "description": "Example entity"
-    }
-  ]
+  "entities": []
 }
 <!-- ENTITY_REGISTRY_END -->
-""",
-        )
+"""
 
-    if not task_path.exists():
-        write_text(
-            task_path,
-            """# CURRENT_TASK.md
+
+def default_task_template() -> str:
+    return """# CURRENT_TASK.md
 
 ## Goal
 Describe the current task.
@@ -207,8 +204,66 @@ Describe the current task.
 ## Done When
 - [ ] Tests pass
 - [ ] Changes committed
-""",
-        )
+"""
+
+
+def recovered_task_template(recovered_excerpt: str) -> str:
+    base = """# CURRENT_TASK.md
+
+## Status
+Recovered task memory requires review before work resumes.
+
+## Recovery Notes
+- Templates were rebuilt by `reinit`.
+- Review and rewrite this file before resuming normal work.
+"""
+    if recovered_excerpt:
+        base += f"\n## Recovered Context\n{recovered_excerpt.strip()}\n"
+    return base
+
+
+def is_map_valid(text: str) -> bool:
+    if not text.strip() or "# !MAP.md" not in text:
+        return False
+    try:
+        extract_entity_registry(text)
+    except Exception:
+        return False
+    return True
+
+
+def is_task_valid(text: str) -> bool:
+    if not text.strip():
+        return False
+    normalized = re.sub(r"^<!-- Last synced:.*?-->\n", "", text.strip())
+    return normalized.startswith("# CURRENT_TASK.md")
+
+
+def extract_recovered_excerpt(text: str, *, max_chars: int = 1200) -> str:
+    cleaned = re.sub(r"^<!-- Last synced:.*?-->\n", "", text.strip())
+    if not cleaned:
+        return ""
+    lines: list[str] = []
+    for raw_line in cleaned.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        lines.append(line)
+    excerpt = "\n".join(lines).strip()
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[:max_chars].rstrip() + "..."
+    return excerpt
+
+
+def ensure_templates(repo: Path) -> None:
+    map_path = repo / "!MAP.md"
+    task_path = repo / "CURRENT_TASK.md"
+
+    if not map_path.exists():
+        write_text(map_path, default_map_template())
+
+    if not task_path.exists():
+        write_text(task_path, default_task_template())
 
 
 def resolved_project_name(repo: Path) -> str:
@@ -607,6 +662,116 @@ def cmd_clear_task(args: argparse.Namespace) -> None:
     print(f"Cleared: {repo / 'CURRENT_TASK.md'}")
 
 
+def cmd_release_attention(args: argparse.Namespace) -> None:
+    repo = resolve_repo(args.repo)
+    task_path = repo / "CURRENT_TASK.md"
+    task_text = read_text(task_path).strip()
+    if not task_text:
+        task_text = "# CURRENT_TASK.md\n"
+
+    now = utc_now()
+    note = args.note.strip() or "Released attention."
+    attention_body = (
+        f"- State: Released\n"
+        f"- Released At: {now}\n"
+        f"- Note: {note}"
+    )
+    next_text = replace_markdown_section(task_text + "\n", "Attention State", attention_body)
+    write_text(task_path, next_text)
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "release-attention",
+            extra={"status": "released"},
+        )
+    print(f"Released attention: {task_path}")
+
+
+def cmd_reinit(args: argparse.Namespace) -> None:
+    repo = resolve_repo(args.repo)
+    map_path = repo / "!MAP.md"
+    task_path = repo / "CURRENT_TASK.md"
+    recovery_root = repo / ATTN_DIR / "recovery" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    recovery_root.mkdir(parents=True, exist_ok=True)
+
+    archived: list[str] = []
+    for path in (
+        map_path,
+        task_path,
+        declaration_path(repo),
+        repo / ATTN_DIR / "map_freshness.json",
+        repo / ATTN_DIR / "ATTENTION_FINALIZE.md",
+    ):
+        if not path.exists():
+            continue
+        target = recovery_root / path.relative_to(repo)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        archived.append(str(path.relative_to(repo)))
+
+    map_text = read_text(map_path)
+    task_text = read_text(task_path)
+    map_was_valid = is_map_valid(map_text)
+    task_was_valid = is_task_valid(task_text)
+    recovered_excerpt = extract_recovered_excerpt(task_text) if args.salvage_task else ""
+
+    if not map_was_valid:
+        write_text(map_path, default_map_template())
+    elif not map_path.exists():
+        write_text(map_path, default_map_template())
+
+    if not task_was_valid:
+        write_text(task_path, recovered_task_template(recovered_excerpt))
+    elif not task_path.exists():
+        write_text(task_path, recovered_task_template(recovered_excerpt))
+
+    for stale_path in (
+        repo / ATTN_DIR / "map_freshness.json",
+        repo / ATTN_DIR / "ATTENTION_FINALIZE.md",
+    ):
+        if stale_path.exists():
+            stale_path.unlink()
+
+    if record_project_operation is not None:
+        record_project_operation(
+            resolved_project_name(repo),
+            repo,
+            "reinit",
+            extra={"status": "recovered"},
+        )
+
+    print(f"Recovery archive: {recovery_root}")
+    if archived:
+        print("Archived:")
+        for item in archived:
+            print(f"  - {item}")
+    print(f"!MAP.md: {'kept' if map_was_valid else 'rebuilt'}")
+    print(f"CURRENT_TASK.md: {'kept' if task_was_valid else 'rebuilt'}")
+
+    if not args.auto_assemble:
+        print("Auto-assemble: skipped")
+        return
+
+    try:
+        declaration = load_declaration(repo)
+        validate_declaration(
+            repo,
+            declaration.get("affected_entities", []),
+            declaration.get("deployment_pipeline", ""),
+            declaration.get("first_principle_summary", ""),
+            bool(declaration.get("requires_new_entity")),
+            declaration.get("task_type", "code"),
+        )
+    except Exception as exc:
+        print(f"Auto-assemble: skipped ({exc})")
+        print("Next step: re-declare intent, then run `attention assemble <repo>`.")
+        return
+
+    print("Auto-assemble: running")
+    cmd_assemble(argparse.Namespace(repo=str(repo)))
+
+
 def cmd_sync_state(args: argparse.Namespace) -> None:
     """Sync !MAP.md, CURRENT_TASK.md, and index with timestamps and version."""
     repo = resolve_repo(args.repo)
@@ -718,10 +883,19 @@ def cmd_init_config(args: argparse.Namespace) -> None:
     if path.exists() and not args.force:
         raise ValueError(f"Config already exists: {path}. Use --force to overwrite.")
     config = build_default_config()
+    migrated_count = 0
+    if LEGACY_CONFIG_PATH is not None and LEGACY_CONFIG_PATH.exists():
+        legacy = load_config()
+        legacy_projects = legacy.get("projects", {})
+        if isinstance(legacy_projects, dict) and legacy_projects:
+            config["projects"] = dict(legacy_projects)
+            migrated_count = len(legacy_projects)
     save_config(config, path)
     if get_index_path is not None:
         get_index_path().parent.mkdir(parents=True, exist_ok=True)
     print(f"Initialized config: {path}")
+    if migrated_count:
+        print(f"Migrated {migrated_count} legacy project(s) from {LEGACY_CONFIG_PATH}")
 
 
 def _ensure_control_plane(create_if_missing: bool = True) -> dict[str, Any]:
@@ -746,7 +920,7 @@ def cmd_init_workspace(args: argparse.Namespace) -> None:
         include_plugins=args.include_plugins,
     )
     if args.dry_run:
-        print(_format_candidate_report(candidates, "Attention-layer init dry run"))
+        print(_format_candidate_report(candidates, "Attention-repo init dry run"))
         if get_config_path is not None:
             print(f"\nConfig path: {get_config_path()}")
         if get_index_path is not None:
@@ -760,12 +934,13 @@ def cmd_init_workspace(args: argparse.Namespace) -> None:
             candidate["canonical_path"],
             source=candidate["scope"],
             managed=True,
+            scope=candidate["scope"],
         )
         ensure_templates(Path(candidate["canonical_path"]))
 
     config_path = save_config(config)
     index_path = reindex_registered_projects(config)
-    print(_format_candidate_report(candidates, "Attention-layer init complete"))
+    print(_format_candidate_report(candidates, "Attention-repo init complete"))
     print(f"\nUpdated config: {config_path}")
     print(f"Updated index: {index_path}")
 
@@ -798,10 +973,10 @@ def cmd_reindex(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Attention-layer JIT context assembler (v0.3.0)")
+    parser = argparse.ArgumentParser(description="Attention-repo JIT context assembler (v0.3.0)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init_cfg = sub.add_parser("init-config", help="Create central attention-layer config")
+    p_init_cfg = sub.add_parser("init-config", help="Create central attention-repo config")
     p_init_cfg.add_argument("--force", action="store_true", help="Overwrite existing config")
 
     p_init = sub.add_parser("init", help="Initialize projects and central index")
@@ -847,6 +1022,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_clear = sub.add_parser("clear-task", help="Clear CURRENT_TASK.md")
     p_clear.add_argument("repo")
 
+    p_reinit = sub.add_parser("reinit", help="Archive broken task/map state and rebuild templates safely")
+    p_reinit.add_argument("repo")
+    p_reinit.add_argument("--salvage-task", action="store_true", default=True, help="Preserve readable CURRENT_TASK.md content")
+    p_reinit.add_argument("--no-salvage-task", action="store_false", dest="salvage_task")
+    p_reinit.add_argument("--auto-assemble", action="store_true", default=True, help="Run assemble after recovery when declaration remains valid")
+    p_reinit.add_argument("--no-auto-assemble", action="store_false", dest="auto_assemble")
+
+    p_release = sub.add_parser("release-attention", help="Mark repo attention as released after wrap")
+    p_release.add_argument("repo")
+    p_release.add_argument("--note", default="Released attention.")
+
     p_sync = sub.add_parser("sync-state", help="Sync !MAP.md, CURRENT_TASK.md, and index with timestamps")
     p_sync.add_argument("repo")
     p_sync.add_argument("--version", default="0.3.0", help="Version to record")
@@ -854,7 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_repair = sub.add_parser("repair", help="Backfill missing project files for registered projects")
 
-    p_reindex = sub.add_parser("reindex", help="Refresh the central attention-layer index")
+    p_reindex = sub.add_parser("reindex", help="Refresh the central attention-repo index")
 
     return parser
 
@@ -903,6 +1089,14 @@ def main() -> None:
 
     if args.command == "clear-task":
         cmd_clear_task(args)
+        return
+
+    if args.command == "reinit":
+        cmd_reinit(args)
+        return
+
+    if args.command == "release-attention":
+        cmd_release_attention(args)
         return
 
     if args.command == "sync-state":

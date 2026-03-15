@@ -29,7 +29,7 @@ async function runBridge(ctx: {
   const args = [
     bridgeScript,
     "--text",
-    ctx.commandBody.trim() || "/attention_layer",
+    ctx.commandBody.trim() || "/attention_repo",
     "--user-id",
     ctx.senderId?.trim() || "unknown",
     "--platform",
@@ -55,8 +55,8 @@ async function runBridge(ctx: {
 
 export default function register(api: OpenClawPluginApi) {
   api.registerCommand({
-    name: "attention_layer",
-    description: "Show the attention-layer project menu.",
+    name: "attention_repo",
+    description: "Show the attention-repo project menu.",
     acceptsArgs: true,
     handler: async (ctx) =>
       runBridge({

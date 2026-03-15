@@ -8,10 +8,10 @@ Humans and LLMs do not hold working context the same way.
 - Chat history is not a reliable working-memory system for multi-repo work.
 - Repo files preserve code, but not always the active focus, reason for change, or wrap-up outcome.
 
-The current attention-layer already solves part of this with `start`, `init`, `wrap`, repo-local files, and a central index. The next step is to promote the workflow from command-level state to an explicit **attention session** model.
+The current attention-repo already solves part of this with `start`, `init`, `wrap`, repo-local files, and a central index. The next step is to promote the workflow from command-level state to an explicit **attention session** model.
 
 ## Product Thesis
-Attention Layer should become the shared working-memory layer between a human operator and one or more LLM sessions.
+Attention Repo should become the shared working-memory layer between a human operator and one or more LLM sessions.
 
 The product is not “a command set.” The product is:
 
@@ -27,7 +27,7 @@ Suggested fields:
 
 - `session_id`
 - `project`
-- `status`: `active | paused | blocked | wrapped`
+- `status`: `active | paused | blocked | wrapped | released`
 - `declared_goal`
 - `current_task`
 - `task_summary`
@@ -60,7 +60,7 @@ Purpose:
 - architecture and task state close to code
 
 ### Central control-plane memory
-Lives under `~/.openclaw/attention-layer/`:
+Lives under `~/.openclaw/attention-repo/`:
 
 - `config.json`
 - `index.json`
@@ -83,7 +83,7 @@ Meaning:
 
 - `start` opens or resumes an attention session and shows latest task context first
 - `init` discovers projects and backfills required templates
-- `wrap` performs freshness, reflection, finalize, and sync
+- `wrap` performs freshness, reflection, finalize, sync, and release-attention
 
 Telegram remains the primary guided UI:
 
@@ -104,30 +104,30 @@ Current AO signals:
 Recommended contract:
 
 1. AO starts work on a repo:
-   - AO calls attention-layer `start <project> <task>`
-   - attention-layer opens or updates the attention session
+   - AO calls attention-repo `start <project> <task>`
+   - attention-repo opens or updates the attention session
 
 2. AO spawns sub-agents:
    - AO attaches session metadata to each agent run
-   - attention-layer records task and status projections only
+   - attention-repo records task and status projections only
 
 3. AO completes a work phase:
    - AO writes summary/blocker/result into the active session
-   - attention-layer updates repo-local and central state
+   - attention-repo updates repo-local and central state
 
 4. AO closes work:
-   - AO calls attention-layer `wrap <project>`
-   - attention-layer writes finalize, freshness, sync, and wrap summary
+   - AO calls attention-repo `wrap <project>`
+   - attention-repo writes finalize, freshness, sync, and wrap summary
 
 Design rule:
 - AO owns execution orchestration
-- attention-layer owns human/LLM shared attention memory
+- attention-repo owns human/LLM shared attention memory
 
 ## Phased Plan
 
 ### Phase 1: Session Schema
 - Define `attention session` JSON schema
-- Add central session registry under `~/.openclaw/attention-layer/sessions/`
+- Add central session registry under `~/.openclaw/attention-repo/sessions/`
 - Add repo-local `.attention/session.json`
 - Keep one active session per project first
 
@@ -142,13 +142,13 @@ Design rule:
   - finalize report
   - wrap summary
   - updated central session/index metadata
-- optionally mark `CURRENT_TASK.md` as wrapped or paused
+- mark repo attention as released unless the user explicitly keeps it active
 
 ### Phase 4: AO Integration
-- define AO -> attention-layer update contract
+- define AO -> attention-repo update contract
 - accept AO session IDs and task IDs
 - store AO session references inside attention session state
-- keep attention-layer rebuildable even if AO is offline
+- keep attention-repo rebuildable even if AO is offline
 
 ### Phase 5: Reflection as First-Class Memory
 - add explicit `reflection` or `wrap_summary` artifact
@@ -164,7 +164,7 @@ Design rule:
 
 ## Risks
 - Too many memory files without one canonical session object
-- AO and attention-layer diverging into separate state models
+- AO and attention-repo diverging into separate state models
 - over-automation that mutates repos on passive startup
 - storing verbose summaries that increase token cost without improving recall
 

@@ -1,9 +1,10 @@
-"""Central config, project discovery, and index helpers for attention_layer."""
+"""Central config, project discovery, and index helpers for attention_repo."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +17,23 @@ LEGACY_INDEX_PATH = SKILL_ROOT / ".attention" / "index.json"
 DEFAULT_OPENCLAW_ROOT = Path.home() / ".openclaw"
 DEFAULT_WORKSPACE_ROOT = DEFAULT_OPENCLAW_ROOT / "workspace"
 OPENCLAW_CONFIG_ENV = "OPENCLAW_CONFIG_PATH"
-STATE_ROOT_ENV = "ATTENTION_LAYER_STATE_ROOT"
-CONFIG_PATH_ENV = "ATTENTION_LAYER_CONFIG_PATH"
-INDEX_PATH_ENV = "ATTENTION_LAYER_INDEX_PATH"
+STATE_ROOT_ENV = "ATTENTION_REPO_STATE_ROOT"
+CONFIG_PATH_ENV = "ATTENTION_REPO_CONFIG_PATH"
+INDEX_PATH_ENV = "ATTENTION_REPO_INDEX_PATH"
 CANDIDATE_MARKERS = [".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "README.md"]
+RESERVED_PROJECT_TOKENS = {
+    "attention",
+    "attention-repo",
+    "attention_repo",
+    "init",
+    "no",
+    "n",
+    "projects",
+    "start",
+    "wrap",
+    "yes",
+    "y",
+}
 
 
 def utc_now() -> str:
@@ -32,6 +46,12 @@ def _expand_path(raw: str | Path) -> Path:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_lookup_token(raw: str) -> str:
+    token = re.sub(r"[\s_]+", "-", raw.strip().lower())
+    token = re.sub(r"-{2,}", "-", token)
+    return token.strip("-")
 
 
 def get_openclaw_config_path() -> Path:
@@ -52,7 +72,7 @@ def get_state_root() -> Path:
     override = os.environ.get(STATE_ROOT_ENV)
     if override:
         return _expand_path(override)
-    return DEFAULT_OPENCLAW_ROOT / "attention-layer"
+    return DEFAULT_OPENCLAW_ROOT / "attention-repo"
 
 
 def get_config_path() -> Path:
@@ -140,7 +160,7 @@ def build_default_config(openclaw_cfg: dict[str, Any] | None = None) -> dict[str
     state_root = get_state_root()
 
     return {
-        "$schema": "attention-layer-config-v2",
+        "$schema": "attention-repo-config-v3",
         "openclaw": {
             "config_path": str(get_openclaw_config_path()),
             "inherit_workspace_root": True,
@@ -161,6 +181,7 @@ def build_default_config(openclaw_cfg: dict[str, Any] | None = None) -> dict[str
             "candidate_markers": list(CANDIDATE_MARKERS),
             "include_skills_only_when_requested": True,
             "include_plugins_only_when_requested": True,
+            "menu_visible_scopes": ["projects", "skills"],
         },
         "models": {
             "default": "auto",
@@ -203,6 +224,21 @@ def _normalize_legacy_config(config: dict[str, Any], openclaw_cfg: dict[str, Any
     return normalized
 
 
+def _merge_legacy_projects_into_central(
+    central_config: dict[str, Any],
+    legacy_config: dict[str, Any],
+    openclaw_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(central_config)
+    merged_projects = dict(central_config.get("projects", {}))
+    legacy_projects = _normalize_legacy_config(legacy_config, openclaw_cfg).get("projects", {})
+    for name, entry in legacy_projects.items():
+        if name not in merged_projects:
+            merged_projects[name] = entry
+    merged["projects"] = merged_projects
+    return merged
+
+
 def load_config(skill_root: Path | None = None) -> dict[str, Any]:
     del skill_root  # Legacy callers still pass this.
     openclaw_cfg = load_openclaw_config()
@@ -210,12 +246,27 @@ def load_config(skill_root: Path | None = None) -> dict[str, Any]:
     if central_path.exists():
         config = _read_json(central_path)
         if "projects" not in config and "project_registry" in config:
-            return _normalize_legacy_config(config, openclaw_cfg)
+            normalized = _normalize_legacy_config(config, openclaw_cfg)
+            save_config(normalized, central_path)
+            return normalized
+        central_projects = config.get("projects", {})
+        if (
+            isinstance(central_projects, dict)
+            and not central_projects
+            and LEGACY_CONFIG_PATH.exists()
+        ):
+            merged = _merge_legacy_projects_into_central(
+                config,
+                _read_json(LEGACY_CONFIG_PATH),
+                openclaw_cfg,
+            )
+            save_config(merged, central_path)
+            return merged
         return config
     if LEGACY_CONFIG_PATH.exists():
         return _normalize_legacy_config(_read_json(LEGACY_CONFIG_PATH), openclaw_cfg)
     raise FileNotFoundError(
-        "Missing attention-layer config. Run `scripts/attention init-config` to create "
+        "Missing attention-repo config. Run `scripts/attention init-config` to create "
         f"{central_path}."
     )
 
@@ -239,6 +290,138 @@ def get_project_registry(config: dict[str, Any] | None = None) -> dict[str, dict
     return {}
 
 
+def get_project_display_name(project_name: str, config: dict[str, Any] | None = None) -> str:
+    registry = get_project_registry(config)
+    entry = registry.get(project_name, {})
+    display_name = str(entry.get("display_name", "")).strip()
+    if display_name:
+        return display_name
+    canonical_raw = str(entry.get("canonical_path", "")).strip()
+    if canonical_raw:
+        basename = _expand_path(canonical_raw).name.strip()
+        if basename and basename != project_name:
+            return basename
+    return project_name
+
+
+def get_project_aliases(project_name: str, config: dict[str, Any] | None = None) -> list[str]:
+    registry = get_project_registry(config)
+    entry = registry.get(project_name, {})
+    aliases: list[str] = []
+    raw_aliases = entry.get("aliases", [])
+    if isinstance(raw_aliases, list):
+        aliases.extend(str(alias).strip() for alias in raw_aliases if str(alias).strip())
+
+    display_name = str(entry.get("display_name", "")).strip()
+    if display_name and display_name != project_name:
+        aliases.append(display_name)
+
+    canonical_raw = str(entry.get("canonical_path", "")).strip()
+    if canonical_raw:
+        basename = _expand_path(canonical_raw).name.strip()
+        if basename and basename != project_name:
+            aliases.append(basename)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    project_token = _normalize_lookup_token(project_name)
+    for alias in aliases:
+        token = _normalize_lookup_token(alias)
+        if not token or token == project_token:
+            continue
+        if token in RESERVED_PROJECT_TOKENS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(alias)
+    return deduped
+
+
+def resolve_project_key(
+    project_name: str,
+    config: dict[str, Any] | None = None,
+    *,
+    allow_fuzzy: bool = True,
+) -> str:
+    if config is None:
+        config = load_config()
+
+    registry = get_project_registry(config)
+    if not registry:
+        raise ValueError("No registered projects.")
+
+    exact = project_name.strip()
+    if exact in registry:
+        return exact
+
+    normalized_input = _normalize_lookup_token(project_name)
+    if not normalized_input:
+        raise ValueError("Missing project name.")
+
+    for name in registry:
+        if _normalize_lookup_token(name) == normalized_input:
+            return name
+
+    alias_matches: list[str] = []
+    for name in registry:
+        alias_tokens = {_normalize_lookup_token(alias) for alias in get_project_aliases(name, config)}
+        if normalized_input in alias_tokens:
+            alias_matches.append(name)
+    if len(alias_matches) == 1:
+        return alias_matches[0]
+    if len(alias_matches) > 1:
+        raise ValueError(f"Ambiguous project alias '{project_name}': {sorted(alias_matches)}")
+
+    if not allow_fuzzy:
+        raise ValueError(
+            f"Project '{project_name}' not in config registry. Known projects: {list(registry.keys())}"
+        )
+
+    input_words = set(normalized_input.replace("-", " ").split())
+    fuzzy_matches: list[str] = []
+    for name in registry:
+        tokens = [name, get_project_display_name(name, config), *get_project_aliases(name, config)]
+        for token in tokens:
+            normalized_token = _normalize_lookup_token(token)
+            if not normalized_token:
+                continue
+            token_words = set(normalized_token.replace("-", " ").split())
+            if not token_words:
+                continue
+            common_words = input_words & token_words
+            if input_words <= token_words or token_words <= input_words:
+                fuzzy_matches.append(name)
+                break
+            if common_words and len(common_words) >= min(len(input_words), len(token_words)) * 0.5:
+                fuzzy_matches.append(name)
+                break
+
+    fuzzy_matches = sorted(set(fuzzy_matches))
+    if len(fuzzy_matches) == 1:
+        return fuzzy_matches[0]
+    if len(fuzzy_matches) > 1:
+        raise ValueError(f"Ambiguous project name '{project_name}': {fuzzy_matches}")
+
+    raise ValueError(
+        f"Project '{project_name}' not in config registry. Known projects: {list(registry.keys())}"
+    )
+
+
+def _registered_project_paths(config: dict[str, Any]) -> set[Path]:
+    paths: set[Path] = set()
+    for entry in get_project_registry(config).values():
+        canonical_raw = entry.get("canonical_path")
+        if not canonical_raw:
+            continue
+        canonical = _expand_path(canonical_raw)
+        try:
+            paths.add(canonical.resolve())
+        except OSError:
+            paths.add(canonical)
+    return paths
+
+
 def list_registered_projects(config: dict[str, Any] | None = None) -> list[str]:
     return sorted(get_project_registry(config).keys())
 
@@ -248,10 +431,7 @@ def resolve_project_path(project_name: str, config: dict[str, Any] | None = None
         config = load_config()
 
     registry = get_project_registry(config)
-    if project_name not in registry:
-        raise ValueError(
-            f"Project '{project_name}' not in config registry. Known projects: {list(registry.keys())}"
-        )
+    project_name = resolve_project_key(project_name, config)
 
     project = registry[project_name]
     canonical = _expand_path(project["canonical_path"])
@@ -378,22 +558,65 @@ def resolve_project_name_from_path(repo: Path, config: dict[str, Any] | None = N
     return None
 
 
+def infer_project_scope(canonical_path: str | Path, config: dict[str, Any] | None = None) -> str:
+    if config is None:
+        config = load_config()
+
+    repo = _expand_path(canonical_path)
+    roots = config.get("paths", {})
+    for root in roots.get("default_scan_roots", []):
+        if repo.parent == _expand_path(root):
+            return "projects"
+
+    optional_roots = roots.get("optional_scan_roots", {})
+    for scope, raw_root in optional_roots.items():
+        if isinstance(raw_root, str) and repo.parent == _expand_path(raw_root):
+            return scope
+
+    return "discovered"
+
+
 def summarize_current_task(repo: Path) -> tuple[str, str]:
     task_path = repo / "CURRENT_TASK.md"
     if not task_path.exists():
         return "missing", ""
     text = task_path.read_text(encoding="utf-8", errors="replace")
     lowered = text.lower()
+    sections: dict[str, list[str]] = {}
+    current_section = ""
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## "):
+            current_section = line[3:].strip().lower()
+            sections.setdefault(current_section, [])
+            continue
+        sections.setdefault(current_section, []).append(line)
+
     status = "idle"
-    if "completed" in lowered:
+    attention_lines = [
+        line.strip().lower()
+        for line in sections.get("attention state", []) + sections.get("attention", [])
+        if line.strip()
+    ]
+    if any("released" in line for line in attention_lines):
+        status = "released"
+    elif any("blocked" in line for line in attention_lines):
+        status = "blocked"
+    elif any("paused" in line for line in attention_lines):
+        status = "paused"
+    elif any("wrapped" in line for line in attention_lines):
+        status = "wrapped"
+    elif "completed" in lowered:
         status = "completed"
     elif "in progress" in lowered or "active" in lowered:
         status = "active"
 
     summary = ""
-    for raw_line in text.splitlines():
+    status_lines = sections.get("status", [])
+    candidate_lines = status_lines if any(line.strip() for line in status_lines) else text.splitlines()
+    for raw_line in candidate_lines:
         line = raw_line.strip()
-        if not line or line.startswith("#") or line.startswith("<!--"):
+        if not line or line.startswith("#") or line.startswith("<!--") or line.startswith("- State:"):
             continue
         summary = line
         break
@@ -410,10 +633,17 @@ def refresh_project_record(
     project_name: str,
     canonical_path: str | Path,
     existing: dict[str, Any] | None = None,
+    *,
+    scope: str | None = None,
+    menu_visible: bool | None = None,
 ) -> dict[str, Any]:
     repo = _expand_path(canonical_path)
     record = dict(existing or {})
     record["canonical_path"] = str(repo)
+    if scope:
+        record["scope"] = scope
+    if menu_visible is not None:
+        record["menu_visible"] = menu_visible
     record["exists"] = repo.exists()
     record["has_map"] = (repo / "!MAP.md").exists()
     record["has_task"] = (repo / "CURRENT_TASK.md").exists()
@@ -457,7 +687,22 @@ def record_project_operation(
     index = load_index(index_path)
     projects = index.setdefault("projects", {})
     existing = projects.get(project_name, {})
-    record = refresh_project_record(project_name, canonical_path, existing)
+    scope = existing.get("scope")
+    menu_visible = existing.get("menu_visible")
+    try:
+        config = load_config()
+        project = get_project_registry(config).get(project_name, {})
+        scope = project.get("scope", scope) or infer_project_scope(canonical_path, config)
+        menu_visible = project.get("menu_visible", menu_visible)
+    except Exception:
+        pass
+    record = refresh_project_record(
+        project_name,
+        canonical_path,
+        existing,
+        scope=scope,
+        menu_visible=menu_visible,
+    )
     record["last_operation"] = operation
     record["last_result"] = result
     record["last_event_at"] = utc_now()
@@ -467,9 +712,11 @@ def record_project_operation(
         "assemble": "last_assemble",
         "freshness": "last_freshness",
         "finalize-change": "last_finalize",
+        "release-attention": "last_release_attention",
         "sync-state": "last_sync_state",
         "update-task": "last_update_task",
         "clear-task": "last_clear_task",
+        "reinit": "last_reinit",
         "repair": "last_repair",
         "reindex": "last_reindex",
         "init": "last_init",
@@ -490,7 +737,13 @@ def reindex_registered_projects(config: dict[str, Any] | None = None, index_path
     index = load_index(index_path)
     projects = {}
     for name, entry in get_project_registry(config).items():
-        projects[name] = refresh_project_record(name, entry["canonical_path"], index.get("projects", {}).get(name))
+        projects[name] = refresh_project_record(
+            name,
+            entry["canonical_path"],
+            index.get("projects", {}).get(name),
+            scope=entry.get("scope") or infer_project_scope(entry["canonical_path"], config),
+            menu_visible=entry.get("menu_visible", True),
+        )
     index["projects"] = projects
     return save_index(index, index_path)
 
@@ -501,13 +754,32 @@ def register_project(
     canonical_path: str | Path,
     source: str = "discovered",
     managed: bool = True,
+    *,
+    aliases: list[str] | None = None,
+    display_name: str | None = None,
+    scope: str | None = None,
+    menu_visible: bool = True,
 ) -> None:
+    resolved_scope = scope or infer_project_scope(canonical_path, config)
+    normalized_project = _normalize_lookup_token(project_name)
+    filtered_aliases: list[str] = []
+    for alias in aliases or []:
+        alias_text = str(alias).strip()
+        alias_token = _normalize_lookup_token(alias_text)
+        if not alias_token or alias_token == normalized_project or alias_token in RESERVED_PROJECT_TOKENS:
+            continue
+        if alias_text not in filtered_aliases:
+            filtered_aliases.append(alias_text)
     registry = get_project_registry(config)
     registry[project_name] = {
         "canonical_path": str(_expand_path(canonical_path)),
         "source_strategy": "local_only",
         "managed": managed,
         "source": source,
+        "aliases": filtered_aliases,
+        "display_name": (display_name or "").strip(),
+        "scope": resolved_scope,
+        "menu_visible": menu_visible,
     }
     config["projects"] = registry
 
@@ -540,6 +812,7 @@ def detect_project_candidates(
         roots.append(("plugins", _expand_path(optional_roots["plugins"])))
 
     registry = get_project_registry(config)
+    registered_paths = _registered_project_paths(config)
     candidates: list[dict[str, Any]] = []
     for scope, root in roots:
         if not root.exists() or not root.is_dir():
@@ -567,7 +840,7 @@ def detect_project_candidates(
                     "has_map": has_map,
                     "has_task": has_task,
                     "classification": classification,
-                    "registered": child.name in registry,
+                    "registered": child.resolve() in registered_paths or child.name in registry,
                 }
             )
     return candidates

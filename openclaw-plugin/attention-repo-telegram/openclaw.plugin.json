@@ -1,0 +1,10 @@
+{
+  "id": "attention-repo-telegram",
+  "name": "Attention Repo Telegram Bridge",
+  "description": "Routes /attention_repo and inline callbacks through the attention-repo service router.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

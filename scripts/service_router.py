@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Service-aware router for attention_layer skill (v0.3.0).
+Service-aware router for attention_repo skill (v0.3.0).
 
 This is the core routing engine that connects user input (from Telegram, 
-WhatsApp, TUI, or CLI) to the attention_layer CLI commands. It provides:
+WhatsApp, TUI, or CLI) to the attention_repo CLI commands. It provides:
 
 1. Natural language intent detection
 2. Session-based conversation flow (for multi-turn interactions)
@@ -15,11 +15,11 @@ Architecture:
 User Input → service_router.py → attention CLI → Response
                 ↓
          Session State (in-memory)
-         Persistent Index (~/.openclaw/attention-layer/index.json)
+         Persistent Index (~/.openclaw/attention-repo/index.json)
 
 Telegram Flow:
 -------------
-/attention_layer → format_main_menu() → Inline keyboard with 3 actions
+/attention_repo → format_main_menu() → Inline keyboard with 3 actions
     ↓
 [Click Projects] → Project selector
     ↓
@@ -48,30 +48,44 @@ from typing import Any
 
 try:
     from scripts.resolve import (
+        detect_project_candidates,
         ensure_index as ensure_central_index,
         get_config_path,
         get_index_path,
+        get_project_display_name,
         get_project_registry,
+        infer_project_scope,
         list_registered_projects as resolve_list_registered_projects,
         load_config as resolve_load_config,
         load_index as resolve_load_index,
         record_project_operation,
+        register_project,
+        reindex_registered_projects,
         refresh_project_record,
+        resolve_project_key,
         resolve_project_path,
+        save_config,
         summarize_current_task,
     )
 except ModuleNotFoundError:
     from resolve import (
+        detect_project_candidates,
         ensure_index as ensure_central_index,
         get_config_path,
         get_index_path,
+        get_project_display_name,
         get_project_registry,
+        infer_project_scope,
         list_registered_projects as resolve_list_registered_projects,
         load_config as resolve_load_config,
         load_index as resolve_load_index,
         record_project_operation,
+        register_project,
+        reindex_registered_projects,
         refresh_project_record,
+        resolve_project_key,
         resolve_project_path,
+        save_config,
         summarize_current_task,
     )
 
@@ -114,6 +128,11 @@ INTENT_PATTERNS = {
         r"init(?:ialize)?(?:\s+projects)?",
         r"index\s+new",
         r"scan\s+(?:for\s+)?projects",
+    ],
+    "reinit": [
+        r"reinit\s+(.+?)(?:\s*$|\?)",
+        r"repair\s+(.+?)(?:\s*$|\?)",
+        r"recover\s+(.+?)(?:\s*$|\?)",
     ],
     "wrap": [
         r"wrap\s+(.+?)(?:\s*$|\?)",
@@ -159,7 +178,7 @@ def detect_intent(text: str) -> tuple[str | None, str | None]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_config() -> dict[str, Any]:
-    """Load central attention-layer config (with legacy fallback handled by resolver)."""
+    """Load central attention-repo config (with legacy fallback handled by resolver)."""
     return resolve_load_config()
 
 
@@ -169,63 +188,52 @@ def list_projects() -> list[str]:
 
 
 def resolve_project(project_name: str) -> Path:
-    """Resolve project path via config with fuzzy matching."""
+    """Resolve project path via config with alias-aware matching."""
     config = _load_config()
+    canonical_key = resolve_project_key(project_name, config)
     registry = get_project_registry(config)
-    
-    # Normalize input
-    normalized_input = project_name.lower().replace('-', ' ').replace('_', ' ')
-    
-    # Exact match first (case-insensitive)
-    for name, data in registry.items():
-        if name.lower() == project_name.lower():
-            return Path(data["canonical_path"])
-    
-    # Fuzzy match - check if all words in input are in project name
-    input_words = set(normalized_input.split())
-    for name in registry:
-        normalized_name = name.lower().replace('-', ' ').replace('_', ' ')
-        name_words = set(normalized_name.split())
-        
-        # Check if input words are subset of name words or vice versa
-        if input_words <= name_words or name_words <= input_words:
-            return Path(registry[name]["canonical_path"])
-        
-        # Check for significant overlap
-        common_words = input_words & name_words
-        if len(common_words) >= min(len(input_words), len(name_words)) * 0.5:
-            return Path(registry[name]["canonical_path"])
-    
-    raise ValueError(f"Unknown project: {project_name}")
+    return Path(registry[canonical_key]["canonical_path"])
 
 
 def normalize_project_name(project_name: str) -> str:
     """Normalize project name to canonical case from config."""
-    config = _load_config()
-    registry = get_project_registry(config)
-    
-    # Normalize input
-    normalized_input = project_name.lower().replace('-', ' ').replace('_', ' ')
-    
-    # Exact match (case-insensitive)
-    for name in registry:
-        if name.lower() == project_name.lower():
-            return name
-    
-    # Fuzzy match with word overlap
-    input_words = set(normalized_input.split())
-    for name in registry:
-        normalized_name = name.lower().replace('-', ' ').replace('_', ' ')
-        name_words = set(normalized_name.split())
-        
-        if input_words <= name_words or name_words <= input_words:
-            return name
-        
-        common_words = input_words & name_words
-        if len(common_words) >= min(len(input_words), len(name_words)) * 0.5:
-            return name
-    
-    return project_name  # Return as-is if no match
+    try:
+        return resolve_project_key(project_name, _load_config())
+    except ValueError:
+        return project_name
+
+
+def display_project_name(project_name: str) -> str:
+    return get_project_display_name(project_name, _load_config())
+
+
+def _format_attention_prefix(mode: str, project: str) -> str:
+    display_name = display_project_name(project)
+    if display_name != project:
+        return f"`[{mode}@{display_name}]` (`{project}`)"
+    return f"`[{mode}@{display_name}]`"
+
+
+def _requires_confirmation(platform: str) -> bool:
+    return platform in {"telegram", "tui"}
+
+
+def _set_pending_confirmation(
+    session: dict,
+    *,
+    action: str,
+    project: str,
+    task_text: str | None = None,
+) -> None:
+    session["pending_confirmation"] = {
+        "action": action,
+        "project": project,
+        "task_text": task_text,
+    }
+
+
+def _clear_pending_confirmation(session: dict) -> None:
+    session["pending_confirmation"] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,6 +272,9 @@ def get_session(user_id: str) -> dict:
             "selected_project": None,
             "active_project": None,
             "awaiting_followup": False,
+            "awaiting_registration": False,
+            "registration_candidates": [],
+            "pending_confirmation": None,
         }
     return _user_sessions[user_id]
 
@@ -282,7 +293,7 @@ STALENESS_DAYS = 7  # Warn if not checked in 7 days
 
 
 def _load_index() -> dict:
-    """Load or create the central attention-layer index."""
+    """Load or create the central attention-repo index."""
     ensure_central_index()
     return resolve_load_index()
 
@@ -327,6 +338,242 @@ def update_project_index(project: str, operation: str, result: str = "ok"):
         _save_index(index)
 
 
+def _scope_icon(scope: str) -> str:
+    return "📋" if scope == "projects" else "🧰" if scope == "skills" else "📦"
+
+
+def _prepare_project_for_start(project: str) -> str | None:
+    """Bootstrap missing templates on first open without changing task state."""
+    staleness = get_project_staleness(project)
+    if staleness.get("last_assemble"):
+        return None
+
+    repo = resolve_project(project)
+    result = subprocess.run(
+        [str(ATTENTION_CLI), "init", str(repo)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return f"Prep warning: {result.stderr or result.stdout}".strip()
+    try:
+        record_project_operation(project, repo, "init")
+    except Exception:
+        pass
+    return "Prepared project memory for first use."
+
+
+def _format_confirmation(action: str, project: str, request: RouteRequest, task_text: str | None = None) -> RouteResponse:
+    display_name = display_project_name(project)
+    lines = [_format_attention_prefix(f"confirm-{action}", project), ""]
+    if action == "start":
+        lines.append(f"Confirm focus on *{display_name}*?")
+        if task_text:
+            lines.append(f"Pending task: {task_text}")
+            lines.append("On Yes: save the task and run `update-task -> assemble`.")
+        else:
+            lines.append("On Yes: open the repo focus view and wait for your next task.")
+    elif action == "reinit":
+        lines.append(f"Confirm recovery reinit for *{display_name}*?")
+        lines.append("On Yes: archive broken files, rebuild safe templates, salvage readable task context, and auto-assemble only if the declaration is still valid.")
+    else:
+        lines.append(f"Confirm wrap and release attention for *{display_name}*?")
+        lines.append("On Yes: run `map-freshness-check -> finalize-change -> sync-state -> release-attention`.")
+
+    if request.platform == "tui":
+        lines.append("")
+        lines.append("Reply `y` to continue or `n` to cancel.")
+
+    return RouteResponse(
+        text="\n".join(lines),
+        suggest_menu=request.platform == "telegram",
+        menu_items=[
+            {"label": "Yes", "action": f"confirm-{action}", "project": project, "row": 0},
+            {"label": "No", "action": "cancel-confirmation", "project": project, "row": 0},
+        ] if request.platform == "telegram" else None,
+    )
+
+
+def _request_confirmation_or_execute(
+    intent: str,
+    project: str,
+    request: RouteRequest,
+    *,
+    task_text: str | None = None,
+) -> RouteResponse:
+    session = get_session(request.user_id)
+    if _requires_confirmation(request.platform):
+        _set_pending_confirmation(session, action=intent, project=project, task_text=task_text)
+        return _format_confirmation(intent, project, request, task_text)
+    return execute_intent(intent, project, request, task_text=task_text)
+
+
+def _cancel_confirmation(request: RouteRequest, action: str | None, project: str | None) -> RouteResponse:
+    if action == "start":
+        response = format_index_menu(build_project_index(), request.platform)
+        response.text = "\n".join(["Focus selection cancelled.", "", response.text])
+        return response
+    if action == "reinit" and project:
+        response = format_start_focus(project)
+        response.text = "\n".join(["Reinit cancelled. Repo state was not changed.", "", response.text])
+        return response
+    if action == "wrap" and project:
+        response = format_start_focus(project)
+        response.text = "\n".join(["Wrap cancelled. Attention remains on this repo.", "", response.text])
+        return response
+    return RouteResponse(text="Confirmation cancelled. Use /attention_repo to continue.")
+
+
+def _scan_registration_candidates() -> list[dict[str, Any]]:
+    config = _load_config()
+    candidates = detect_project_candidates(config, include_skills=True)
+    return sorted(
+        candidates,
+        key=lambda item: (0 if not item["registered"] else 1, item["scope"], item["name"].lower()),
+    )
+
+
+def _format_registration_scan(candidates: list[dict[str, Any]]) -> RouteResponse:
+    total = len(candidates)
+    registered = sum(1 for item in candidates if item["registered"])
+    unregistered = total - registered
+    new_candidates = [item for item in candidates if not item["registered"]]
+    existing_candidates = [item for item in candidates if item["registered"]]
+    lines = ["*Index New* — scanned repo roots\n"]
+    lines.append(f"Found: {total} repo(s)")
+    lines.append(f"Unregistered: {unregistered}")
+    lines.append(f"Already registered: {registered}\n")
+
+    if not new_candidates and not existing_candidates:
+        lines.append("No repos found in the configured project or skills roots.")
+    else:
+        if new_candidates:
+            lines.append("Unregistered repos:")
+            for candidate in new_candidates:
+                scope_icon = _scope_icon(candidate["scope"])
+                lines.append(f"- {scope_icon} *{candidate['name']}* [{candidate['scope']}] — {candidate['classification']}")
+        if existing_candidates:
+            lines.append("\nAlready registered:")
+            for candidate in existing_candidates:
+                scope_icon = _scope_icon(candidate["scope"])
+                lines.append(f"- {scope_icon} {candidate['name']}")
+        lines.append("\nReply `register <project-name>`, `register all`, or `cancel`.")
+        lines.append("Use the project name exactly as shown.")
+
+    return RouteResponse(
+        text="\n".join(lines),
+        suggest_menu=True,
+        menu_items=[
+            {"label": "🔄 Rescan", "action": "init", "project": "", "row": 0},
+            {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+        ],
+    )
+
+
+def _parse_registration_selection(text: str, candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+    lowered = text.lower().strip()
+    if lowered == "cancel":
+        return [], "__cancel__"
+    if lowered == "register all":
+        selected = [item for item in candidates if not item["registered"]]
+        return selected, None if selected else "Everything in this scan is already registered."
+    if not lowered.startswith("register "):
+        return [], "Reply with `register <project-name>`, `register all`, or `cancel`."
+
+    requested_name = text.strip()[len("register "):].strip()
+    if not requested_name:
+        return [], "Missing project name. Use `register <project-name>`."
+
+    for candidate in candidates:
+        if candidate["name"].lower() == requested_name.lower():
+            if candidate["registered"]:
+                return [], f"`{candidate['name']}` is already registered in this scan."
+            return [candidate], None
+
+    available = ", ".join(sorted(item["name"] for item in candidates if not item["registered"]))
+    return [], f"Unknown repo in current scan: `{requested_name}`.\nAvailable: {available}"
+
+
+def _is_registration_reply(text: str) -> bool:
+    lowered = text.lower().strip()
+    return lowered == "cancel" or lowered == "register all" or lowered.startswith("register ")
+
+
+def _register_selected_candidates(selected: list[dict[str, Any]], candidates: list[dict[str, Any]] | None = None) -> RouteResponse:
+    config = _load_config()
+    added: list[str] = []
+    skipped: list[str] = []
+    template_notes: list[str] = []
+
+    for candidate in selected:
+        name = candidate["name"]
+        if candidate["registered"]:
+            skipped.append(f"{name} (already registered)")
+            continue
+        register_project(
+            config,
+            name,
+            candidate["canonical_path"],
+            source=candidate["scope"],
+            managed=True,
+            scope=candidate["scope"],
+        )
+        repo = Path(candidate["canonical_path"])
+        result = subprocess.run(
+            [str(ATTENTION_CLI), "init", str(repo)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            template_notes.append(f"{name}: templates ready")
+        else:
+            template_notes.append(f"{name}: template warning: {result.stderr or result.stdout}".strip())
+        added.append(name)
+        candidate["registered"] = True
+
+    if candidates:
+        selected_names = {item["name"] for item in selected}
+        for candidate in candidates:
+            if candidate["name"] in selected_names:
+                candidate["registered"] = True
+
+    save_config(config)
+    reindex_registered_projects(config)
+
+    lines = ["*Register Projects*\n"]
+    if added:
+        lines.append("Registered:")
+        for name in added:
+            lines.append(f"- {name}")
+    if skipped:
+        lines.append("\nSkipped:")
+        for item in skipped:
+            lines.append(f"- {item}")
+    if template_notes:
+        lines.append("\nBootstrap:")
+        for note in template_notes:
+            lines.append(f"- {note}")
+    if not added and not skipped:
+        lines.append("Nothing changed.")
+    if candidates:
+        remaining = [item["name"] for item in candidates if not item["registered"]]
+        if remaining:
+            lines.append("\nStill available in this scan:")
+            lines.append(", ".join(remaining))
+            lines.append("Reply with `register <project-name>`, `register all`, or `cancel`.")
+
+    return RouteResponse(
+        text="\n".join(lines),
+        suggest_menu=True,
+        menu_items=[
+            {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+            {"label": "🧭 Index New", "action": "init", "project": "", "row": 0},
+        ],
+    )
+
+
 def get_project_staleness(project: str) -> dict:
     """Get staleness info for a project."""
     index = _load_index()
@@ -360,11 +607,22 @@ def build_project_index() -> list[dict]:
     index_projects = _load_index().get("projects", {})
     projects = []
     for name, data in registry.items():
+        if data.get("menu_visible", True) is False:
+            continue
         cached = index_projects.get(name, {})
-        record = refresh_project_record(name, data.get("canonical_path", "unknown"), cached) if not cached else cached
+        scope = data.get("scope") or infer_project_scope(data.get("canonical_path", "unknown"), config)
+        record = refresh_project_record(
+            name,
+            data.get("canonical_path", "unknown"),
+            cached,
+            scope=scope,
+            menu_visible=data.get("menu_visible", True),
+        )
         project_info = {
             "name": name,
+            "display_name": get_project_display_name(name, config),
             "path": data.get("canonical_path", "unknown"),
+            "scope": scope,
             "has_task": bool(record.get("has_task")),
             "entity_count": 0,
             "task_status": record.get("status", "idle"),
@@ -394,6 +652,8 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
             status_emoji = "🟢"
         elif p.get("task_status") == "completed":
             status_emoji = "✅"
+        elif p.get("task_status") == "released":
+            status_emoji = "⏹"
         else:
             status_emoji = "⚪"
         
@@ -403,18 +663,18 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
         detail_parts = []
         if staleness.get("days_since_assemble") is not None:
             days = staleness["days_since_assemble"]
-            detail_parts.append(f"assembled {days:.0f}d ago")
+            detail_parts.append(f"refreshed {days:.0f}d ago")
         elif staleness.get("last_assemble"):
-            detail_parts.append("assembled recently")
+            detail_parts.append("recently refreshed")
         else:
-            detail_parts.append("never assembled")
+            detail_parts.append("ready to open")
         
         if staleness.get("warnings"):
             detail_parts.append(f"⚠️ {len(staleness['warnings'])} warnings")
         
         detail_str = f" ({', '.join(detail_parts)})" if detail_parts else ""
         
-        lines.append(f"{status_emoji} *{p['name']}*{task_indicator}{detail_str}")
+        lines.append(f"{status_emoji} *{p['display_name']}*{task_indicator}{detail_str}")
     
     # Add footer based on state
     if stale_count > 0:
@@ -425,31 +685,31 @@ def format_index_menu(projects: list[dict], platform: str) -> RouteResponse:
     
     lines.append("\n_Select a project to enter the start flow._")
     
-    # Build menu items - prioritize stale projects, group into rows of 2
+    def project_sort_key(project: dict) -> tuple[int, int, str]:
+        staleness = project.get("staleness", {})
+        scope = project.get("scope", "projects")
+        return (
+            0 if staleness.get("is_stale") else 1,
+            0 if scope == "projects" else 1,
+            project["name"].lower(),
+        )
+
+    def project_label(project: dict) -> str:
+        scope_icon = "📋" if project.get("scope", "projects") == "projects" else "🧰"
+        stale_prefix = "🔴 " if project.get("staleness", {}).get("is_stale") else ""
+        return f"{stale_prefix}{scope_icon} {project['display_name']}"
+
+    # Build menu items - prioritize stale entries, keep projects ahead of skills, group into rows of 2
     menu_items = []
     row_num = 0
-    
-    # First add stale projects
-    for p in projects:
-        if p.get("staleness", {}).get("is_stale"):
-            menu_items.append({
-                "label": f"🔴 {p['name']}",
-                "action": "start",
-                "project": p["name"],
-                "row": row_num // 2  # 2 buttons per row
-            })
-            row_num += 1
-    
-    # Then add others
-    for p in projects:
-        if not p.get("staleness", {}).get("is_stale"):
-            menu_items.append({
-                "label": f"📋 {p['name']}",
-                "action": "start",
-                "project": p["name"],
-                "row": row_num // 2  # 2 buttons per row
-            })
-            row_num += 1
+    for p in sorted(projects, key=project_sort_key):
+        menu_items.append({
+            "label": project_label(p),
+            "action": "start",
+            "project": p["name"],
+            "row": row_num // 2,
+        })
+        row_num += 1
     
     return RouteResponse(
         text="\n".join(lines),
@@ -465,9 +725,9 @@ def format_wrap_menu(projects: list[dict], platform: str) -> RouteResponse:
     menu_items = []
     for idx, project in enumerate(projects):
         marker = "🔴" if project.get("staleness", {}).get("is_stale") else "📦"
-        lines.append(f"{marker} *{project['name']}*")
+        lines.append(f"{marker} *{project['display_name']}*")
         menu_items.append({
-            "label": f"{marker} {project['name']}",
+            "label": f"{marker} {project['display_name']}",
             "action": "wrap",
             "project": project["name"],
             "row": idx // 2,
@@ -479,38 +739,47 @@ def _read_task_excerpt(project: str) -> tuple[str, str]:
     """Return task status and a short task excerpt."""
     project_path = resolve_project(project)
     status, summary = summarize_current_task(project_path)
+    if status == "missing":
+        status = "idle"
     if summary:
         return status, summary
     task_path = project_path / "CURRENT_TASK.md"
     if not task_path.exists():
-        return "missing", "No CURRENT_TASK.md yet."
+        return "idle", "No active task yet."
     content = task_path.read_text(encoding="utf-8", errors="replace").strip()
-    excerpt = content[:280] if content else "CURRENT_TASK.md is empty."
+    excerpt = content[:280] if content else "No active task yet."
     return status, excerpt
 
 
 def format_start_focus(project: str) -> RouteResponse:
     """Show latest project state and prompt for the next task."""
+    prep_note = _prepare_project_for_start(project)
     staleness = get_project_staleness(project)
     status, task_excerpt = _read_task_excerpt(project)
-    lines = [f"*Start {project}*\n"]
-    lines.append(f"Current status: `{status}`")
+    lines = [_format_attention_prefix("focus", project), ""]
+    status_label = (
+        "working" if status == "active"
+        else "done" if status == "completed"
+        else "released" if status == "released"
+        else "ready"
+    )
+    lines.append(f"Current status: `{status_label}`")
+    if prep_note:
+        lines.append(prep_note)
     if staleness.get("is_stale"):
         warnings = ", ".join(staleness.get("warnings", [])) or "Index says project is stale."
         lines.append(f"Attention: {warnings}")
-    lines.append("\nLatest task summary:")
-    lines.append(task_excerpt or "No prior task summary recorded.")
-    lines.append(
-        "\nReply with the next task or change request to declare the current focus. "
-        f"Example: `/attention_layer start {project} fix auth callback redirect`"
-    )
+    lines.append("\nLast recorded focus:")
+    lines.append(task_excerpt or "No active task yet.")
+    lines.append("\nReply with what you want to work on next.")
     return RouteResponse(
         text="\n".join(lines),
         structured_data={"command": "start", "project": project, "status": status},
         suggest_menu=True,
         menu_items=[
-            {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
-            {"label": "📦 Wrap Up", "action": "wrap", "project": project, "row": 0},
+            {"label": "💡 New Idea", "action": "new-idea", "project": project, "row": 0},
+            {"label": "📋 List Others", "action": "list-projects", "project": "", "row": 0},
+            {"label": "📦 Wrap Up", "action": "wrap", "project": project, "row": 1},
         ],
     )
 
@@ -519,7 +788,7 @@ def format_main_menu(platform: str) -> RouteResponse:
     """Show simplified top-level menu."""
     index = _load_index()
     
-    lines = [f"*Attention Layer* — v{ATTENTION_VERSION}\n"]
+    lines = [f"*Attention Repo* — v{ATTENTION_VERSION}\n"]
     lines.append(f"Index updated: {index.get('last_updated', 'unknown')[:10]}")
     lines.append(f"Registered: {len(index.get('projects', {}))} project(s)\n")
     
@@ -569,7 +838,7 @@ def route(request: RouteRequest) -> RouteResponse:
     except FileNotFoundError:
         return RouteResponse(
             text=(
-                "*Attention Layer setup required*\n\n"
+                "*Attention Repo setup required*\n\n"
                 f"Config path: `{get_config_path()}`\n"
                 f"Index path: `{get_index_path()}`\n\n"
                 "Run `scripts/attention init-config` to create the central config, or "
@@ -578,20 +847,56 @@ def route(request: RouteRequest) -> RouteResponse:
         )
 
     # Check for explicit command prefix (handle both dash and underscore variants)
-    # Telegram converts /attention-layer to /attention_layer — underscore is canonical
-    if text.startswith(("/attention_layer", "!attention_layer", "/attention-layer", "!attention-layer")):
+    # Telegram converts /attention-repo to /attention_repo — underscore is canonical
+    if text.startswith(("/attention_repo", "!attention_repo", "/attention-repo", "!attention-repo")):
         # Normalize TO underscore (canonical form)
-        text = text.replace("attention-layer", "attention_layer")
+        text = text.replace("attention-repo", "attention_repo")
         remainder = text.split(None, 1)[1] if " " in text else ""
         if not remainder:
-            # Bare /attention_layer command - show main menu (not just projects)
+            # Bare /attention_repo command - show main menu (not just projects)
             return format_main_menu(request.platform)
         text = remainder
+
+    if (
+        session.get("awaiting_registration")
+        and session.get("registration_candidates")
+        and not text.startswith("attn:")
+        and _is_registration_reply(text)
+    ):
+        selected, error = _parse_registration_selection(text, session["registration_candidates"])
+        if error == "__cancel__":
+            session["awaiting_registration"] = False
+            session["registration_candidates"] = []
+            return RouteResponse(text="Registration cancelled. Use /attention_repo to see the menu.")
+        if error:
+            return RouteResponse(text=error)
+        response = _register_selected_candidates(selected, session["registration_candidates"])
+        if any(not item["registered"] for item in session["registration_candidates"]):
+            session["awaiting_registration"] = True
+        else:
+            session["awaiting_registration"] = False
+            session["registration_candidates"] = []
+        return response
+
+    pending_confirmation = session.get("pending_confirmation") or {}
+    if pending_confirmation and not text.startswith("attn:"):
+        lowered_confirmation = text.lower().strip()
+        if lowered_confirmation in {"y", "yes"}:
+            action = str(pending_confirmation.get("action", "")).strip()
+            project = str(pending_confirmation.get("project", "")).strip()
+            task_text = pending_confirmation.get("task_text")
+            _clear_pending_confirmation(session)
+            return execute_intent(action, project, request, task_text=task_text)
+        if lowered_confirmation in {"n", "no", "cancel"}:
+            action = pending_confirmation.get("action")
+            project = pending_confirmation.get("project")
+            _clear_pending_confirmation(session)
+            return _cancel_confirmation(request, action, project)
 
     # Follow-up task entry after start flow.
     if session.get("awaiting_followup") and session.get("active_project") and not text.startswith("attn:"):
         first_token = text.split()[0].lower() if text.split() else ""
-        if first_token not in {"start", "init", "wrap", "projects", "/attention_layer", "/attention-layer"}:
+        if first_token not in {"start", "init", "wrap", "projects", "/attention_repo", "/attention-repo"}:
             return execute_intent("start", session["active_project"], request, task_text=text)
     
     # Handle attn: prefixed callbacks (from inline buttons)
@@ -604,7 +909,12 @@ def route(request: RouteRequest) -> RouteResponse:
         if action == "cancel":
             session["pending_intent"] = None
             session["awaiting_followup"] = False
-            return RouteResponse(text="Cancelled. Use /attention_layer to see the menu.")
+            _clear_pending_confirmation(session)
+            return RouteResponse(text="Cancelled. Use /attention_repo to see the menu.")
+        if action == "cancel-confirmation":
+            pending = session.get("pending_confirmation") or {}
+            _clear_pending_confirmation(session)
+            return _cancel_confirmation(request, pending.get("action"), pending.get("project"))
         if action == "list-projects":
             projects = build_project_index()
             return format_index_menu(projects, request.platform)
@@ -612,28 +922,65 @@ def route(request: RouteRequest) -> RouteResponse:
             return format_wrap_menu(build_project_index(), request.platform)
         if action == "init":
             return execute_intent("init", "", request)
-        if action == "start" and canonical_project:
-            return execute_intent("start", canonical_project, request)
-        if action == "wrap" and canonical_project:
+        if action == "confirm-start" and canonical_project:
+            pending = session.get("pending_confirmation") or {}
+            task_text = pending.get("task_text")
+            _clear_pending_confirmation(session)
+            return execute_intent("start", canonical_project, request, task_text=task_text)
+        if action == "confirm-reinit" and canonical_project:
+            _clear_pending_confirmation(session)
+            return execute_intent("reinit", canonical_project, request)
+        if action == "confirm-wrap" and canonical_project:
+            _clear_pending_confirmation(session)
             return execute_intent("wrap", canonical_project, request)
+        if action == "start" and canonical_project:
+            return _request_confirmation_or_execute("start", canonical_project, request)
+        if action == "new-idea" and canonical_project:
+            # New idea - prompt for task text then confirm
+            session = get_session(request.user_id)
+            session["selected_project"] = canonical_project
+            session["active_project"] = canonical_project
+            session["awaiting_followup"] = True
+            _set_pending_confirmation(session, action="start", project=canonical_project)
+            lines = [
+                _format_attention_prefix("new-idea", canonical_project),
+                "",
+                f"Enter your new idea or task for *{display_project_name(canonical_project)}*.",
+                "",
+                "Reply with what you want to work on — I'll save it as the new task and start working.",
+            ]
+            return RouteResponse(
+                text="\n".join(lines),
+                suggest_menu=True,
+                menu_items=[
+                    {"label": "← Back", "action": "start", "project": canonical_project, "row": 0},
+                ],
+            )
+        if action == "reinit" and canonical_project:
+            return _request_confirmation_or_execute("reinit", canonical_project, request)
+        if action == "wrap" and canonical_project:
+            return _request_confirmation_or_execute("wrap", canonical_project, request)
 
     lowered = text.lower().strip()
     if lowered == "projects":
         return format_index_menu(build_project_index(), request.platform)
     if lowered == "init":
         return execute_intent("init", "", request)
+    if lowered.startswith("reinit "):
+        project = text.split(None, 1)[1].strip()
+        return _request_confirmation_or_execute("reinit", normalize_project_name(project), request)
     if lowered == "wrap":
         return format_wrap_menu(build_project_index(), request.platform)
     if lowered.startswith("wrap "):
         project = text.split(None, 1)[1].strip()
-        return execute_intent("wrap", normalize_project_name(project), request)
+        return _request_confirmation_or_execute("wrap", normalize_project_name(project), request)
     if lowered.startswith("start "):
         parts = text.split(None, 2)
         if len(parts) < 2:
-            return RouteResponse(text="Usage: /attention_layer start <project> [task]")
+            return RouteResponse(text="Usage: /attention_repo start <project> [task]")
         project = normalize_project_name(parts[1])
         task_text = parts[2].strip() if len(parts) > 2 else None
-        return execute_intent("start", project, request, task_text=task_text)
+        return _request_confirmation_or_execute("start", project, request, task_text=task_text)
     
     # Detect intent
     intent, project = detect_intent(text)
@@ -645,8 +992,8 @@ def route(request: RouteRequest) -> RouteResponse:
         return format_index_menu(build_project_index(), request.platform)
     if intent == "init":
         return execute_intent("init", "", request)
-    if intent in {"start", "wrap"} and project:
-        return execute_intent(intent, normalize_project_name(project), request)
+    if intent in {"start", "reinit", "wrap"} and project:
+        return _request_confirmation_or_execute(intent, normalize_project_name(project), request)
 
     return format_main_menu(request.platform)
 
@@ -657,24 +1004,12 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
         session = get_session(request.user_id)
 
         if intent == "init":
-            result = subprocess.run(
-                [str(ATTENTION_CLI), "init"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            return RouteResponse(
-                text=(result.stdout if result.returncode == 0 else result.stderr or result.stdout).strip() or "Project index refreshed.",
-                structured_data={"command": "init", "rc": result.returncode},
-                suggest_menu=True,
-                menu_items=[
-                    {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
-                    {"label": "📦 Wrap Up", "action": "menu-wrap", "project": "", "row": 0},
-                ],
-            )
+            session["awaiting_registration"] = True
+            session["registration_candidates"] = _scan_registration_candidates()
+            return _format_registration_scan(session["registration_candidates"])
 
         if not project:
-            return RouteResponse(text=f"Missing project for `{intent}`. Use /attention_layer to browse projects.")
+            return RouteResponse(text=f"Missing project for `{intent}`. Use /attention_repo to browse projects.")
 
         if intent == "start":
             session["selected_project"] = project
@@ -691,9 +1026,9 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
                     return RouteResponse(text=f"Task saved for {project}, but assemble failed:\n{assemble_stderr or assemble_stdout}")
                 status, latest_summary = _read_task_excerpt(project)
                 lines = [
-                    f"*Start {project}*",
+                    _format_attention_prefix("work", project),
                     "",
-                    "Declared current focus and refreshed the project map.",
+                    "Saved your focus and refreshed project context.",
                     f"Latest task: {latest_summary or task_text}",
                     "",
                     "Reply with another follow-up if the task changes.",
@@ -709,13 +1044,40 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
                 )
             return format_start_focus(project)
 
-        if intent == "wrap":
+        if intent == "reinit":
             session["awaiting_followup"] = False
             session["active_project"] = None
+            reinit_stdout, reinit_stderr, reinit_rc = run_cli("reinit", project)
+            if reinit_rc != 0:
+                return RouteResponse(
+                    text=(
+                        f"{_format_attention_prefix('reinit-blocked', project)}\n\n"
+                        f"Reinit failed:\n{reinit_stderr or reinit_stdout}"
+                    ),
+                    structured_data={"command": "reinit", "project": project, "rc": reinit_rc},
+                )
+            return RouteResponse(
+                text="\n".join([
+                    _format_attention_prefix("reinit", project),
+                    "",
+                    reinit_stdout.strip() or "Reinit completed.",
+                ]),
+                structured_data={"command": "reinit", "project": project, "rc": 0},
+                suggest_menu=True,
+                menu_items=[
+                    {"label": "📋 Projects", "action": "list-projects", "project": "", "row": 0},
+                    {"label": "▶ Start Again", "action": "start", "project": project, "row": 0},
+                ],
+            )
+
+        if intent == "wrap":
             freshness_stdout, freshness_stderr, freshness_rc = run_cli("map-freshness-check", project)
             if freshness_rc != 0:
                 return RouteResponse(
-                    text=f"Wrap blocked for {project}.\n\nFreshness check failed:\n{freshness_stderr or freshness_stdout}",
+                    text=(
+                        f"{_format_attention_prefix('wrap-blocked', project)}\n\n"
+                        f"Freshness check failed:\n{freshness_stderr or freshness_stdout}"
+                    ),
                     structured_data={"command": "wrap", "project": project, "rc": freshness_rc},
                 )
             finalize_stdout, finalize_stderr, finalize_rc = run_cli(
@@ -725,7 +1087,10 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
             )
             if finalize_rc != 0:
                 return RouteResponse(
-                    text=f"Freshness passed for {project}, but finalize failed:\n{finalize_stderr or finalize_stdout}",
+                    text=(
+                        f"{_format_attention_prefix('wrap-blocked', project)}\n\n"
+                        f"Freshness passed, but finalize failed:\n{finalize_stderr or finalize_stdout}"
+                    ),
                     structured_data={"command": "wrap", "project": project, "rc": finalize_rc},
                 )
             sync_stdout, sync_stderr, sync_rc = run_cli(
@@ -733,8 +1098,15 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
                 project,
                 ["--description", "Wrap-up sync via service_router"],
             )
+            release_stdout, release_stderr, release_rc = run_cli(
+                "release-attention",
+                project,
+                ["--note", "Released via service_router wrap flow"],
+            )
+            session["awaiting_followup"] = False
+            session["active_project"] = None
             lines = [
-                f"*Wrap Up {project}*",
+                _format_attention_prefix("released", project),
                 "",
                 freshness_stdout.strip() or "Freshness check passed.",
                 finalize_stdout.strip() or "Finalize report written.",
@@ -743,6 +1115,10 @@ def execute_intent(intent: str, project: str, request: RouteRequest, task_text: 
                 lines.append(sync_stdout.strip() or "Project memory synced.")
             else:
                 lines.append(f"Sync warning: {sync_stderr or sync_stdout}")
+            if release_rc == 0:
+                lines.append(release_stdout.strip() or "Attention released.")
+            else:
+                lines.append(f"Release warning: {release_stderr or release_stdout}")
             return RouteResponse(
                 text="\n\n".join(lines),
                 structured_data={"command": "wrap", "project": project, "rc": 0},
@@ -875,7 +1251,7 @@ if __name__ == "__main__":
         print("Examples:")
         print("  python3 service_router.py telegram 'assemble summon-A2A-academy'")
         print("  python3 service_router.py whatsapp 'show me the status of summon'")
-        print("  python3 service_router.py tui 'declare intent for attention_layer'")
+        print("  python3 service_router.py tui 'declare intent for attention_repo'")
         sys.exit(1)
     
     platform = sys.argv[1]
