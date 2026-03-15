@@ -1,6 +1,30 @@
 # attention_repo
 
-Lean attention repo for first-principles, CI/CD-aware coding workflows.
+*Lean attention repo for first-principles, CI/CD-aware coding workflows.*
+
+## Theory
+
+attention-repo implements a three-phase architecture for agent attention:
+
+### Phase 1: Explicit Layer
+Entity maps and intent declaration. Based on token-level memory research [1].
+
+### Phase 2: Protection Layer
+Goal fidelity checking and drift detection. Based on metacognition research [2][3].
+
+### Phase 3: Adaptive Layer  
+Importance scoring, entity decay, and connection weights. Based on sparse attention research [4].
+
+### Research Citations
+
+[1] Hu et al., "Memory in the Age of AI Agents", arXiv:2512.13564, 2025  
+[2] Cornoldi et al., "Metacognition & Intelligence", PMC, 2024  
+[3] Sethi et al., "Artificial Metacognition", 2026  
+[4] Nawrot et al., "The Sparse Frontier", arXiv:2504.17768, 2025
+
+See `~/.openclaw/workspace/notes/attention-research/` for detailed research notes.
+
+---
 
 ## What this does
 - Enforces architectural intent declaration before edits.
