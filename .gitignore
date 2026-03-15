@@ -10,3 +10,7 @@ CLAUDE.md
 
 # OS files
 .DS_Store
+
+# Research notes (internal, not for repo)
+# Stored in: ~/.openclaw/workspace/notes/attention-research/
+
