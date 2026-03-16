@@ -1071,6 +1071,7 @@ def cmd_bootstrap_update(args: argparse.Namespace) -> None:
         "task_status": task_status,
         "task_summary": task_summary,
     }
+    index["version"] = ATTENTION_VERSION
     save_index(index)
 
     gate = get_update_gate_status(ATTENTION_VERSION, index=index)

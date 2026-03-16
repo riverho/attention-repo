@@ -34,6 +34,43 @@ scripts/attention bootstrap-update
 /attention_repo assemble my-project
 ```
 
+### Start Narrow
+
+<!-- CODEX_START_NARROW_START -->
+
+This section is authoritative for Codex when the user invokes `attention-repo start`.
+
+When the user invokes `attention-repo start`, the default orientation path is intentionally minimal:
+
+1. Read `!MAP.md`
+2. Read `CURRENT_TASK.md`
+3. Read `.attention/index.json`
+4. Stop and summarize:
+   - closed branches
+   - open branches
+   - current narrowing frame
+   - whether there is an active or released workstream
+
+Do not continue into source files, broad searches, or extra docs on `start` alone.
+
+Expand beyond those three files only if one of these is true:
+- the three artifacts contradict each other
+- one of them is missing or clearly stale
+- the user's next request specifically requires contract details or implementation proof
+
+If deeper orientation is justified, expand in this order:
+1. `docs/PROJECT_MEMORY.md`
+2. `docs/_archive/ARCHITECTURE_AUDIT.md`
+3. `docs/0.2/training_api_contracts.md`
+4. `docs/0.2/training_flow_plan.md`
+
+This is the guardrail:
+- minimal orientation first
+- no `src/` or `frontend/` reads during `start` unless contradiction forces targeted verification
+- no architectural-intent rewrite during `start` unless the user explicitly declares a new work item
+
+<!-- CODEX_START_NARROW_END -->
+
 ---
 
 ## What is Attention Repo?

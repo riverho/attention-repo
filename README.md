@@ -84,6 +84,34 @@ scripts/attention finalize-change /path/to/repo \
 
 ## Usage Guide
 
+## Codex Loading Flow
+
+<!-- CODEX_START_NARROW_START -->
+
+When the working mode is `start`, keep repository loading intentionally narrow:
+
+1. Read `!MAP.md`
+2. Read `CURRENT_TASK.md`
+3. Read `.attention/index.json`
+4. Stop and summarize the current frame before reading anything else
+
+Only expand beyond those artifacts when:
+
+- they contradict each other
+- one is missing or clearly stale
+- the next user request requires proof from implementation details
+
+Preferred expansion order:
+
+1. `docs/PROJECT_MEMORY.md`
+2. `docs/_archive/ARCHITECTURE_AUDIT.md`
+3. `docs/0.2/training_api_contracts.md`
+4. `docs/0.2/training_flow_plan.md`
+
+Avoid broad repo searches and source-file reads during `start` unless one of those escalation conditions is met.
+
+<!-- CODEX_START_NARROW_END -->
+
 ### Shortest mental model
 For normal day-to-day use:
 
@@ -124,12 +152,13 @@ scripts/attention assemble <repo-path>
 Command:
 
 ```bash
-scripts/attention start <repo-path> [task...]
+scripts/attention start [repo-path] [task...]
 ```
 
 What it does:
 
 - Without task text:
+  - defaults to the current working directory when `<repo-path>` is omitted
   - opens the repo's current focus by showing `CURRENT_TASK.md`
 - With task text:
   - runs `update-task`
@@ -153,6 +182,7 @@ Examples:
 
 ```bash
 scripts/attention start .
+scripts/attention start
 scripts/attention start . "Fix Telegram registration routing and verify menu state"
 ```
 

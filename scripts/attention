@@ -15,7 +15,7 @@ COMMANDS:
   init [repo-path] [--include-skills] [--include-plugins] [--dry-run]
   init-config [--force]
   bootstrap-update
-  start <repo-path> [task...]
+  start [repo-path] [task...]
   wrap <repo-path>
   declare-intent <repo-path> --affected-entities ... --deployment-pipeline ... --first-principle-summary ... --requires-new-entity true|false [--task-type code|docs|tests]
   assemble <repo-path>
@@ -35,6 +35,7 @@ EXAMPLES:
   attention init --dry-run
   attention init
   attention bootstrap-update
+  attention start
   attention start . "Summarize the new central config/index flow and trim stale menu paths."
   attention wrap .
   attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
@@ -90,12 +91,11 @@ case "$cmd" in
     python3 "$SCRIPT_DIR/jit-context.py" bootstrap-update "$@"
     ;;
   start)
-    if [ $# -lt 1 ]; then
-      echo "Usage: attention start <repo-path> [task...]"
-      exit 1
+    repo="."
+    if [ $# -ge 1 ]; then
+      repo="$1"
+      shift
     fi
-    repo="$1"
-    shift
     python3 "$SCRIPT_DIR/jit-context.py" reindex >/dev/null 2>&1 || true
     resolved_repo="$(python3 - "$SCRIPT_DIR" "$repo" <<'PY'
 import sys

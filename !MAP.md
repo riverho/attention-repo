@@ -4,7 +4,7 @@
 Lean attention_repo skill for first-principles, CI/CD-aware context assembly.
 
 ## Core Commands
-- `scripts/attention start <repo> [task...]`
+- `scripts/attention start [repo] [task...]`
 - `scripts/attention init`
 - `scripts/attention reinit <repo> [--no-salvage-task] [--no-auto-assemble]`
 - `scripts/attention wrap <repo>`
@@ -26,7 +26,7 @@ Lean attention_repo skill for first-principles, CI/CD-aware context assembly.
 
 ## Operational Snapshot
 - **Version:** 0.3.1
-- **Last Sync:** 2026-03-15T18:10:22.978429+00:00
+- **Last Sync:** 2026-03-16T05:47:52.145376+00:00
 - **Description:** Wrap-up sync via attention CLI
 - **Status:** Operational
 

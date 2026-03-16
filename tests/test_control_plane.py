@@ -306,6 +306,31 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("bootstrap-update", result.stdout)
 
+    def test_start_without_repo_defaults_to_current_directory(self) -> None:
+        repo = self.projects_root / "alpha"
+        (repo / "CURRENT_TASK.md").write_text(
+            "# CURRENT_TASK.md\n\n## Status\nIn progress: default to cwd start flow.\n",
+            encoding="utf-8",
+        )
+
+        env = dict(os.environ)
+        env["ATTENTION_REPO_STATE_ROOT"] = str(self.state_root)
+        env["OPENCLAW_CONFIG_PATH"] = str(self.openclaw_config_path)
+        result = subprocess.run(
+            [str(Path(__file__).resolve().parent.parent / "scripts" / "attention"), "start"],
+            cwd=repo,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertIn(str(repo), result.stdout)
+        self.assertIn("default to cwd start flow", result.stdout)
+        state = get_attention_state()
+        self.assertEqual(state["active"], "alpha")
+        self.assertEqual(Path(state["active_path"]).resolve(), repo.resolve())
+
     def test_release_attention_marks_repo_as_released(self) -> None:
         repo = self.projects_root / "alpha"
         (repo / "CURRENT_TASK.md").write_text(
