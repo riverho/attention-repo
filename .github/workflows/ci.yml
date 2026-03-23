@@ -24,3 +24,4 @@ jobs:
         run: |
           node tests/test_package_contract.js
           node tests/test_bun_cli.js
+          node tests/test_mcp_integration.js

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "child_process";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import {
   getToolRegistry,

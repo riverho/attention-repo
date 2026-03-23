@@ -377,6 +377,11 @@ export async function attentionFinalizeAudit({ testsCommand, testsResult, notes 
     const touchedEntities = registry.filter((entity) => declaredEntities.includes(entity.id));
 
     await execPython([
+      'map-freshness-check',
+      repo,
+    ]);
+
+    await execPython([
       'finalize-change',
       repo,
       '--tests-command',
