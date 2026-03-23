@@ -41,7 +41,7 @@ EXAMPLES:
   attention declare-intent ~/code/repo --affected-entities E-AUTH-01 --deployment-pipeline .github/workflows/api.yml --first-principle-summary "Validate JWT signature and emit auth verdict" --requires-new-entity false
   attention assemble ~/code/repo
   attention update-task ~/code/repo --status-markdown "Mapped entities and started auth middleware edits."
-  attention sync-state . --description "Menu-first UX with Telegram inline keyboards"
+  attention sync-state . --description "Local-first workflow state sync"
 EOF
 }
 

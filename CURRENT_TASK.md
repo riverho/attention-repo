@@ -1,19 +1,18 @@
-<!-- Last synced: 2026-03-16T05:47:52.145376+00:00 | Version: 0.3.1 -->
+<!-- Last synced: 2026-03-23T05:48:03.775434+00:00 | Version: 0.4.0 -->
 # CURRENT_TASK.md
 
-## Status
-Implemented default-current-repo behavior for attention start, updated help/docs, and added control-plane coverage.
+## Goal
+Describe the current task.
 
-## Architectural Intent
-- Entities: E-ATTN-CLI-01
-- Pipeline: .github/workflows/ci.yml
-- First Principle: Make attention start default to the current repo when no repo path is provided, while still accepting an explicit repo path.
-- Requires New Entity: False
+## Constraints
+- Keep changes minimal
+- Preserve existing behavior
 
-## Updated
-2026-03-16T05:47:48.857742+00:00
+## Done When
+- [ ] Tests pass
+- [ ] Changes committed
 
 ## Attention State
 - State: Released
-- Released At: 2026-03-16T05:47:52.262979+00:00
+- Released At: 2026-03-23T05:48:03.907084+00:00
 - Note: Released via attention CLI wrap flow

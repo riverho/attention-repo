@@ -18,3 +18,9 @@ jobs:
       - name: Run router regression tests
         run: |
           python3 -m unittest discover -s tests -p "test_*.py"
+      - name: Install Node dependencies
+        run: npm install
+      - name: Run Node tests
+        run: |
+          node tests/test_package_contract.js
+          node tests/test_bun_cli.js

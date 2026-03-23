@@ -1,0 +1,8 @@
+{
+  "case_slug": "autoresearch-intent-gate",
+  "charts": [
+    "charts/before-after-bar.svg",
+    "charts/error-rate-bar.svg",
+    "charts/progression-line.svg"
+  ]
+}

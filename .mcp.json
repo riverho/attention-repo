@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "attention-repo": {
+      "command": "node",
+      "args": ["/Users/river/.openclaw/workspace/projects/attention-repo/mcp-server/index.js"],
+      "env": {
+        "ATTENTION_REPO_PATH": "."
+      }
+    }
+  }
+}

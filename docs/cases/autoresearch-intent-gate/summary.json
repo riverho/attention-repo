@@ -1,0 +1,36 @@
+{
+  "case_slug": "autoresearch-intent-gate",
+  "benchmark": "projects/autoresearch-master",
+  "run_count": 0,
+  "primary_metric_name": "val_bpb",
+  "secondary_metric_name": "peak_memory_gb",
+  "control": {
+    "retained_improvement_rate": null,
+    "invalid_edit_rate": null,
+    "crash_rate": null,
+    "wasted_runs_before_first_retained_improvement": null,
+    "revert_rate": null,
+    "best_achieved_val_bpb": null
+  },
+  "treatment": {
+    "retained_improvement_rate": null,
+    "invalid_edit_rate": null,
+    "crash_rate": null,
+    "wasted_runs_before_first_retained_improvement": null,
+    "revert_rate": null,
+    "best_achieved_val_bpb": null
+  },
+  "delta": {
+    "retained_improvement_rate": null,
+    "invalid_edit_rate": null,
+    "crash_rate": null,
+    "wasted_runs_before_first_retained_improvement": null,
+    "revert_rate": null,
+    "best_achieved_val_bpb": null
+  },
+  "key_findings": [],
+  "limitations": [
+    "Single-surface benchmark.",
+    "Measures execution discipline better than full deployment-boundary intelligence."
+  ]
+}

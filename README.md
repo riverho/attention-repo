@@ -1,60 +1,290 @@
-# attention_repo
+# Attention Repo
 
-*Lean attention repo for first-principles, CI/CD-aware coding workflows.*
+*Deployment intelligence for coding agents.*
 
-Canonical version metadata lives in [`version.json`](./version.json).
+Implementation repo status:
 
-## Theory
+- canonical product and launch spec lives in [docs/MASTER_SPEC_HANDOFF.md](/Users/river/.openclaw/workspace/projects/attention-repo/docs/MASTER_SPEC_HANDOFF.md)
+- canonical product design source lives in [/Users/river/.openclaw/workspace/notes/attention-repo/MASTER_DESIGN_AND_IMPLEMENTATION.md](/Users/river/.openclaw/workspace/notes/attention-repo/MASTER_DESIGN_AND_IMPLEMENTATION.md)
+- this repo is the implementation surface, not the authoritative launch messaging doc
+- the OSS-local package boundary is documented in [docs/OSS_LOCAL_BOUNDARY.md](/Users/river/.openclaw/workspace/projects/attention-repo/docs/OSS_LOCAL_BOUNDARY.md)
 
-attention-repo implements a three-phase architecture for agent attention:
+Your coding agent can read code.
+It still cannot reliably see deployment boundaries.
 
-### Phase 1: Explicit Layer
-Entity maps and intent declaration. Based on token-level memory research [1].
+Attention Repo helps agents understand:
+- what deployable surface owns a file
+- what CI/CD pipeline owns a change
+- whether a task crosses service boundaries
+- what architectural and runtime context should be in scope before editing
 
-### Phase 2: Protection Layer
-Goal fidelity checking and drift detection. Based on metacognition research [2][3].
-
-### Phase 3: Adaptive Layer  
-Importance scoring, entity decay, and connection weights. Based on sparse attention research [4].
-
-### Research Citations
-
-[1] Hu et al., "Memory in the Age of AI Agents", arXiv:2512.13564, 2025  
-[2] Cornoldi et al., "Metacognition & Intelligence", PMC, 2024  
-[3] Sethi et al., "Artificial Metacognition", 2026  
-[4] Nawrot et al., "The Sparse Frontier", arXiv:2504.17768, 2025
-
-See `~/.openclaw/workspace/notes/attention-research/` for detailed research notes.
+It is not another planning system.
+It gives agents repo and deployment intelligence they cannot reliably infer from code alone.
 
 ---
 
-## What this does
-- Enforces architectural intent declaration before edits.
-- Maps work to existing entities in `!MAP.md`.
-- Injects relevant CI/CD and runtime files into task context.
-- Produces a deterministic finalize report.
+## The problem
 
-## Versioning
-- `version.json` is the canonical version source for the repo.
-- Runtime surfaces read from `version.json`; they do not own version strings.
-- `scripts/attention sync-state` uses the canonical version by default, so normal release flows do not need `--version`.
-- After a deployed skill update, the first normal run is gated until `scripts/attention bootstrap-update` compiles the control-plane state for the new version.
+Modern coding agents can:
+- inspect files
+- trace symbols
+- edit code
+- run tests
+- ship real changes
 
-## Init
-Run once in a target repo:
+But they still often miss repo-level reality:
+- two folders may deploy through different pipelines
+- one service may be out of scope for the current task
+- a seemingly simple edit may cross a deployment boundary
+- a PR may touch multiple deployable surfaces without anyone noticing early enough
+
+That leads to expensive stupidity:
+- wrong service touched
+- wrong pipeline assumed
+- hidden cross-boundary edits
+- deployment breakage
+- poor auditability for AI-generated changes
+
+Attention Repo exists to close that gap.
+
+---
+
+## What Attention Repo does
+
+### Today
+The current implementation provides boundary awareness mainly through:
+- manual entity mapping in `!MAP.md`
+- intent declaration against known entities
+- deployment-pipeline validation
+- scoped context assembly
+- freshness checks and finalize reports
+
+In practice, that means the system can already help answer:
+- which declared entity is in scope
+- which pipeline should apply to the task
+- whether the declared work mismatches the mapped boundary
+- what repo and CI/CD context should be injected into the work session
+
+### Coming next
+The target launch contract is:
+- Bun package for installation
+- local `attention-repo setup --key`
+- local `attention-repo status`
+- packaged local MCP runtime
+- v2 orchestration-complete MCP tools
+- Attention Lab key handoff into local setup
+
+### What stays constant
+Whether manual or discovered, the core value is the same:
+- boundary awareness
+- scoped context
+- boundary validation
+- audit trail
+
+---
+
+## What it is not
+
+Attention Repo is **not** primarily:
+- a generic task planner
+- a replacement for agent memory
+- a broad AI governance suite
+- a generic architecture documentation tool
+
+Coding agents already have planning systems.
+Attention Repo works with those systems by supplying deployment-aware repo context.
+
+---
+
+## Why now
+
+Three things changed:
+
+1. **Agents now have direct filesystem and execution access**
+   The blast radius is real.
+
+2. **Agents are already good at planning**
+   Cursor, Claude Code, Devin, Kiro, Amp and others already plan, reflect, and verify.
+   The missing layer is deployment awareness.
+
+3. **Multi-service software is normal**
+   More teams now have multiple deployable surfaces than their agents can reliably model.
+
+---
+
+## Launch wedge
+
+The wedge is simple:
+
+**Before an agent edits code, it should know what deployable surface it is touching.**
+
+That means Attention Repo should answer questions like:
+- What pipeline owns `src/tasks/routes.ts`?
+- Does this task cross a service boundary?
+- Which files are in scope for this deployable surface?
+- What repo context should the agent see before changing this code?
+
+---
+
+## Current launch direction
+
+The open-source launch path is no longer active.
+
+The current launch critical path is:
+
+1. Bun package
+2. working `attention-repo setup --key`
+3. working `attention-repo status`
+4. packaged local MCP runtime
+5. demo repo
+6. public README and side-by-side proof
+
+Attention Lab is the human onboarding and key-distribution layer.
+The local MCP runtime is the agent integration layer.
+
+## Installation
+
+The official install surface is a single package:
 
 ```bash
-scripts/attention init /path/to/repo
+bun install -g @summon-ai/attention-repo
+attention-repo setup --key "ak_attention_repo_xxx"
+attention-repo status
 ```
 
-This creates:
-- `!MAP.md` (architecture + entity registry)
-- `CURRENT_TASK.md` (ephemeral task status)
+The same package owns the local MCP runtime:
 
-## Core usage
-Use this 4-step flow:
+```bash
+attention-repo tools
+attention-repo mcp-config
+attention-repo mcp
+```
 
-1. Declare intent (mandatory)
+That means the next user does not need to discover or install a second MCP package.
+The root package is the release artifact.
+The bundled MCP runtime is an internal implementation detail.
+
+---
+
+## MCP target
+
+The launch target is the v2 orchestration-complete MCP surface:
+
+1. `attention_resolve_scope`
+2. `attention_get_constraints`
+3. `attention_declare_scope`
+4. `attention_assemble_context`
+5. `attention_validate_changes`
+6. `attention_finalize_audit`
+
+The current codebase still contains earlier MCP tool names in places.
+Those are transitional implementation details, not the long-term contract.
+
+The tool registry shipped with the package is queryable locally:
+
+```bash
+attention-repo tools
+attention-repo tools --json
+```
+
+And the package can print a ready-to-paste MCP config snippet:
+
+```bash
+attention-repo mcp-config
+attention-repo mcp-config codex
+```
+
+---
+
+## Who this is for
+
+### Primary users
+Teams that:
+- already use coding agents
+- work in multi-service production repos
+- already have CI/CD pipelines
+- feel real pain from architecturally naive agent edits
+
+Ideal shape:
+- 5 to 50 engineers
+- startup or mid-market product team
+- at least 2 meaningful deployment boundaries
+
+### Secondary users
+- fintech / healthcare / regulated teams
+- platform engineering teams
+- teams that need traceability for AI-generated changes
+
+### Not the best fit yet
+- toy single-service apps
+- teams not using coding agents
+- teams shopping for a broad enterprise governance platform before they have concrete boundary pain
+
+---
+
+## Competitive position
+
+Current coding agents already do a lot well:
+- planning
+- reflection
+- task tracking
+- memory / steering files
+- post-edit verification
+
+That is not the gap.
+
+The gap is:
+- deployment awareness
+- cross-boundary validation
+- structured post-change audit trail
+
+That is where Attention Repo lives.
+
+---
+
+## Quick example
+
+A coding agent is asked to update a task API route.
+
+Without repo intelligence, it may:
+- edit files in the wrong service
+- assume the wrong deployment pipeline
+- drag another deployable surface into scope
+
+With today’s Attention Repo workflow, the agent or operator declares the relevant entity and pipeline first, then assembles scoped context before editing.
+
+With the stronger product direction, Attention Repo should increasingly infer and answer this directly, for example:
+- this file belongs to `tasks-service`
+- it deploys through `api-deploy.yml`
+- notifications are out of scope
+- changes crossing into `notifications-service` require separate handling
+
+That is the product value in one move.
+
+---
+
+## Current workflow support
+
+Attention Repo also includes a workflow layer for teams that want stricter operational discipline.
+
+That layer includes:
+- intent declaration
+- current task tracking
+- map freshness checks
+- finalize reports
+- released-attention state
+
+This is useful, especially in more operational or multi-agent environments.
+But it is not the main launch story.
+The main story is repo and deployment intelligence.
+
+---
+
+## Core workflow commands
+
+If you want the stricter workflow today, the current CLI supports a 4-step flow:
+
+### 1. Declare intent
 ```bash
 scripts/attention declare-intent /path/to/repo \
   --affected-entities E-ATTN-CLI-01 \
@@ -63,18 +293,18 @@ scripts/attention declare-intent /path/to/repo \
   --requires-new-entity false
 ```
 
-2. Assemble context
+### 2. Assemble context
 ```bash
 scripts/attention assemble /path/to/repo
 ```
 
-3. Update current task status
+### 3. Update task status
 ```bash
 scripts/attention update-task /path/to/repo \
   --status-markdown "Mapped entity and pipeline. Applying changes now."
 ```
 
-4. Finalize the change
+### 4. Finalize change
 ```bash
 scripts/attention finalize-change /path/to/repo \
   --tests-command "scripts/attention --help" \
@@ -82,283 +312,90 @@ scripts/attention finalize-change /path/to/repo \
   --notes "Ready for review"
 ```
 
-## Usage Guide
+This workflow is best understood as an advanced operating mode on top of the repo-intelligence core.
 
-## Codex Loading Flow
+---
 
-<!-- CODEX_START_NARROW_START -->
+## Current repo artifacts
 
-When the working mode is `start`, keep repository loading intentionally narrow:
+Today Attention Repo uses a few core files:
 
-1. Read `!MAP.md`
-2. Read `CURRENT_TASK.md`
-3. Read `.attention/index.json`
-4. Stop and summarize the current frame before reading anything else
+- `!MAP.md` — architecture map and entity registry
+- `CURRENT_TASK.md` — current task state
+- `.attention/` — local runtime state
+- `~/.openclaw/attention-repo/config.json` — central control-plane config
+- `~/.openclaw/attention-repo/index.json` — derived runtime index
 
-Only expand beyond those artifacts when:
+These support the current implementation and workflow model.
 
-- they contradict each other
-- one is missing or clearly stale
-- the next user request requires proof from implementation details
+---
 
-Preferred expansion order:
+## Near-term roadmap
 
-1. `docs/PROJECT_MEMORY.md`
-2. `docs/_archive/ARCHITECTURE_AUDIT.md`
-3. `docs/0.2/training_api_contracts.md`
-4. `docs/0.2/training_flow_plan.md`
+1. package the CLI for Bun release
+2. implement `attention-repo setup --key`
+3. implement `attention-repo status`
+4. package the local MCP runtime for `bunx`
+5. move MCP implementation toward the v2 tool surface
+6. build the demo repo and side-by-side proof
 
-Avoid broad repo searches and source-file reads during `start` unless one of those escalation conditions is met.
+---
 
-<!-- CODEX_START_NARROW_END -->
+## What must be proven
 
-### Shortest mental model
-For normal day-to-day use:
+The key product test is simple:
 
-1. `start` a repo
-2. work inside the repo
-3. `wrap` the repo and release attention
+**Do agents with Attention Repo make fewer wrong-boundary edits than agents using plain context files?**
 
-Use `init` and `reindex` only to maintain the shared registry/menu layer.
+If yes, the product is real.
+If not, it is just an elegant extra layer.
 
-Typed commands can use the canonical project key or an alias. Button callbacks always keep the canonical key.
+---
 
-### `work`
-This is the active editing phase between `start` and `wrap`.
+## Install and current usage
 
-What it usually includes:
-
-- inspect the assembled context and current task focus
-- edit code, docs, or tests in the target repo
-- run the repo's normal verification commands
-- update task status if the scope changes during the session
-- declare intent first if you are changing behavior and have not already done so
-
-Best use cases:
-
-- any real implementation pass
-- debugging, refactoring, documentation, or test work
-- iterative sessions where task status may need to be refreshed before wrapping
-
-Typical supporting commands during `work`:
-
+### Current implementation setup
 ```bash
-scripts/attention declare-intent <repo-path> ...
-scripts/attention update-task <repo-path> --status-markdown "..."
-scripts/attention assemble <repo-path>
+cd ~/.openclaw/workspace/projects/attention-repo
 ```
 
-### `start`
-Command:
-
+### Initialize shared control-plane config
 ```bash
-scripts/attention start [repo-path] [task...]
+scripts/attention init-config
 ```
 
-What it does:
-
-- Without task text:
-  - defaults to the current working directory when `<repo-path>` is omitted
-  - opens the repo's current focus by showing `CURRENT_TASK.md`
-- With task text:
-  - runs `update-task`
-  - runs `assemble`
-- In Telegram and TUI:
-  - asks for confirmation before entering repo focus
-
-Confirmation behavior:
-
-- Telegram: `Yes` / `No` buttons
-- TUI: `Y/n`
-- CLI wrapper: direct execution with no extra confirmation prompt
-
-Best use cases:
-
-- resume work on a repo
-- record the next focus in one command
-- assemble current context before editing
-
-Examples:
-
-```bash
-scripts/attention start .
-scripts/attention start
-scripts/attention start . "Fix Telegram registration routing and verify menu state"
-```
-
-### `bootstrap-update`
-Command:
-
-```bash
-scripts/attention bootstrap-update
-```
-
-What it does:
-
-- validates the deployed skill's local `!MAP.md` and `CURRENT_TASK.md`
-- repairs those files safely if they are invalid
-- recompiles the central control-plane state for the deployed `version.json`
-- clears the post-update gate so normal `start` / menu flows can resume
-
-Use it once after deploying a new skill version when attention-repo tells you the update bootstrap is required.
-
-### `wrap`
-Command:
-
-```bash
-scripts/attention wrap <repo-path>
-```
-
-What it does:
-
-- runs `map-freshness-check`
-- runs `finalize-change`
-- runs `sync-state`
-- runs `release-attention`
-
-Best use cases:
-
-- end a work session cleanly
-- verify repo memory still matches implementation
-- leave a coherent final state for the next session or agent
-- clear active repo focus without deleting `CURRENT_TASK.md`
-
-Example:
-
-```bash
-scripts/attention wrap .
-```
-
-### `release-attention`
-Command:
-
-```bash
-scripts/attention release-attention <repo-path> [--note "..."]
-```
-
-What it does:
-
-- marks the repo-local task file with `Attention State: Released`
-- records released status in the central index
-- keeps the last task summary available for the next `start`
-
-Use it directly only for repairs. Normal flows should reach it through `wrap`.
-
-### `reinit`
-Command:
-
-```bash
-scripts/attention reinit <repo-path> [--no-salvage-task] [--no-auto-assemble]
-```
-
-What it does:
-
-- archives current task/map and attention artifacts under `.attention/recovery/<timestamp>/`
-- rebuilds safe templates when `!MAP.md` or `CURRENT_TASK.md` are missing or corrupt
-- salvages readable task text into `## Recovered Context` by default
-- removes stale freshness/finalize artifacts
-- auto-runs `assemble` only if the declaration still validates after recovery
-
-Use it for repo-memory recovery, not normal startup.
-
-### `init`
-Command:
-
-```bash
-scripts/attention init [--include-skills] [--include-plugins] [--dry-run]
-```
-
-What it does:
-
-- scans configured roots for candidate repos
-- registers discovered repos into the central control-plane config
-- creates missing repo templates during a real init
-- refreshes the central index
-
-Best use cases:
-
-- first-time setup
-- `Index New` style discovery
-- bringing new repos into the shared menu/control-plane surface
-
-Examples:
-
+### Discover and register repos
 ```bash
 scripts/attention init --dry-run
 scripts/attention init
-scripts/attention init --include-skills
-```
-
-### `reindex`
-Command:
-
-```bash
 scripts/attention reindex
 ```
 
-What it does:
-
-- reads central `~/.openclaw/attention-repo/config.json`
-- rebuilds central `~/.openclaw/attention-repo/index.json`
-
-Best use cases:
-
-- repair menu or status drift
-- refresh the shared runtime view after config changes
-- verify the central control plane is consistent
-
-Example:
-
+### Start using the current workflow
 ```bash
-scripts/attention reindex
+/attention_repo
+/attention_repo assemble my-project
 ```
 
-## Map freshness requirement
-- Before `finalize-change`, verify `!MAP.md` is current for all affected entities.
-- If responsibilities/endpoints changed, update entity metadata in `!MAP.md` in the same change set.
-- If no map changes are needed, record a short no-change justification in `CURRENT_TASK.md` or finalize notes.
+Canonical version metadata lives in [`version.json`](./version.json).
 
-## Optional: register a new entity
-Only when you declared `--requires-new-entity true`:
+The canonical product and launch contract is documented in:
 
-```bash
-scripts/attention register-new-entity /path/to/repo \
-  --id E-NEW-01 \
-  --type Endpoint \
-  --file-path src/api/new.ts \
-  --ci-cd .github/workflows/ci.yml \
-  --endpoint "POST /new" \
-  --description "New endpoint for ..."
-```
+- [docs/MASTER_SPEC_HANDOFF.md](/Users/river/.openclaw/workspace/projects/attention-repo/docs/MASTER_SPEC_HANDOFF.md)
 
-## Notes
-- `CURRENT_TASK.md` is ephemeral and should be rewritten frequently.
-- `.attention/` is local runtime state and is gitignored.
-- Repo entries may define optional `aliases` and `display_name` in central config.
-- Alias resolution order is: exact key, exact alias, then fuzzy matching.
+---
 
-## Control Plane State
-The official shared control-plane state lives under `~/.openclaw/attention-repo/`.
+## Archived legacy integrations
 
-Files and roles:
+Older skill/OpenClaw/Telegram integration files are archived out of the OSS-local package boundary.
 
-- `~/.openclaw/attention-repo/config.json`
-  Persistent control-plane source of truth. Registered projects are added here. Discovery roots and other durable settings also live here.
-- `~/.openclaw/attention-repo/index.json`
-  Derived runtime projection built from `config.json` plus live repo inspection. This file stores menu/status data such as `exists`, `has_map`, `has_task`, `stale`, and last operation timestamps. It is not the registration authority.
-- `<repo>/!MAP.md`, `<repo>/CURRENT_TASK.md`, `<repo>/.attention/*`
-  Repo-local memory and workflow artifacts.
+The active local-testing surface is:
 
-Registration contract:
+- Bun CLI
+- local MCP
+- local workflow scripts
+- local tests
 
-1. Registering a project updates `~/.openclaw/attention-repo/config.json`.
-2. Reindexing and normal operations refresh `~/.openclaw/attention-repo/index.json`.
-3. If `config.json` and `index.json` disagree, `config.json` wins.
+Archive reference:
 
-Legacy compatibility:
-
-- `attention-config.json` in the skill repo is a legacy fallback from the pre-centralized model.
-- It should not remain an active source of truth once central `config.json` is in use.
-- Any migration or fallback behavior must preserve the rule that central `config.json` is authoritative.
-- If central `config.json` exists but its `projects` registry is empty, attention-repo imports legacy registered projects into central config once and persists them there.
-- After central `config.json` contains the expected projects and central `index.json` has been refreshed, the legacy `attention-config.json` can be removed.
+- [docs/OSS_LOCAL_BOUNDARY.md](/Users/river/.openclaw/workspace/projects/attention-repo/docs/OSS_LOCAL_BOUNDARY.md)

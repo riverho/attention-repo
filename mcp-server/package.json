@@ -1,0 +1,30 @@
+{
+  "name": "@summon-ai/attention-repo-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal MCP runtime bundled by the root Attention Repo package for local development",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "attention-repo-mcp": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "mcp",
+    "attention-repo",
+    "claude",
+    "coding-agent",
+    "ci-cd"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

@@ -391,7 +391,7 @@ def validate_declaration(
         mapped = {entity_map[eid].get("ci_cd") for eid in affected_entities if eid in entity_map}
         mapped.discard(None)
         mapped.discard("")
-        if mapped and deployment_pipeline not in mapped:
+        if mapped and (len(mapped) > 1 or deployment_pipeline not in mapped):
             allowed = ", ".join(sorted(str(x) for x in mapped))
             raise ValueError(
                 "deployment_pipeline must match the selected entity mappings. "

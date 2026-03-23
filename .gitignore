@@ -1,5 +1,9 @@
 .attention/
 attention-config.json
+node_modules/
+.claude/
+*.bun-build
+mcp-server/attention-repo-mcp
 
 NEXT_STEPS_UNTESTED.md
 __pycache__/

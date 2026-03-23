@@ -1,0 +1,51 @@
+{
+  "name": "@summon-ai/attention-repo",
+  "version": "0.4.0",
+  "description": "Attention Repo CLI and local MCP launcher",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/riverho/attention-repo.git"
+  },
+  "homepage": "https://github.com/riverho/attention-repo",
+  "bugs": {
+    "url": "https://github.com/riverho/attention-repo/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "attention-repo": "bin/attention-repo.js"
+  },
+  "scripts": {
+    "mcp": "node mcp-server/index.js",
+    "test:cli": "node tests/test_bun_cli.js",
+    "test:mcp": "node tests/test_mcp_integration.js",
+    "test:package": "node tests/test_package_contract.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "files": [
+    "bin/attention-repo.js",
+    "mcp-server/index.js",
+    "mcp-server/package.json",
+    "mcp-server/src",
+    "src/package/registry.js",
+    "scripts/__init__.py",
+    "scripts/attention",
+    "scripts/attention-state.py",
+    "scripts/attention_state.py",
+    "scripts/jit-context.py",
+    "scripts/jit_context.py",
+    "scripts/resolve.py",
+    "scripts/version_info.py",
+    "src",
+    "version.json",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=18.0.0"
+  }
+}

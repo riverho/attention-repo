@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -737,26 +738,21 @@ def refresh_project_record(
     assemble_time = parse_checkpoint(last_assemble)
     freshness_time = parse_checkpoint(record.get("last_freshness"))
     sync_time = parse_checkpoint(record.get("last_sync_state"))
+    recency_baseline = max(
+        [checkpoint for checkpoint in (assemble_time, freshness_time, sync_time) if checkpoint is not None],
+        default=None,
+    )
 
-    if isinstance(last_assemble, str) and last_assemble:
-        if _days_since(last_assemble) > 7:
+    if recency_baseline is not None:
+        if (datetime.now(timezone.utc) - recency_baseline).total_seconds() / 86400 > 7:
             stale = True
-            warnings.append("Not assembled in 7+ days")
+            warnings.append("No assemble/freshness/sync in 7+ days")
         map_path = repo / "!MAP.md"
         if map_path.exists():
             map_mtime = datetime.fromtimestamp(map_path.stat().st_mtime, tz=timezone.utc)
-            freshness_baseline = max(
-                [checkpoint for checkpoint in (assemble_time, freshness_time, sync_time) if checkpoint is not None],
-                default=None,
-            )
-            if freshness_baseline is not None and map_mtime > freshness_baseline:
+            if map_mtime > recency_baseline:
                 stale = True
                 warnings.append("!MAP.md modified since last verified/synced state")
-
-    last_freshness = record.get("last_freshness")
-    if isinstance(last_freshness, str) and last_freshness and _days_since(last_freshness) > 7:
-        stale = True
-        warnings.append("Freshness not checked in 7+ days")
 
     record["stale"] = stale
     record["warnings"] = warnings
@@ -781,8 +777,8 @@ def record_project_operation(
         project = get_project_registry(config).get(project_name, {})
         scope = project.get("scope", scope) or infer_project_scope(canonical_path, config)
         menu_visible = project.get("menu_visible", menu_visible)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[attention-repo] warning: could not load config in record_project_operation: {exc}", file=sys.stderr)
     record = refresh_project_record(
         project_name,
         canonical_path,
