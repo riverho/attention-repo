@@ -1,6 +1,6 @@
 {
   "name": "@summon-ai/attention-repo",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Attention Repo CLI and local MCP launcher",
   "license": "UNLICENSED",
   "type": "module",
@@ -25,7 +25,8 @@
     "test:package": "node tests/test_package_contract.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "list": "^2.0.19"
   },
   "files": [
     "bin/attention-repo.js",

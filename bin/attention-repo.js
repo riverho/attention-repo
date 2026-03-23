@@ -238,7 +238,7 @@ function cmdTools(args) {
 
 function cmdMcpConfig(args) {
   const format = args[0] && !args[0].startsWith("--") ? args[0] : "json";
-  const repoPath = getFlagValue(args, "--repo") || ".";
+  const repoPath = getFlagValue(args, "--repo");
 
   if (format === "json") {
     console.log(renderJsonMcpConfig(repoPath));

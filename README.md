@@ -2,7 +2,15 @@
 
 *Deployment intelligence for coding agents.*
 
+Version: v0.4.1. 
+Update Date: 23 March 2026 
 Status: public package, source-visible implementation repo, not a full open-source release yet.
+
+> [!WARNING]
+> Attention Repo is currently under private testing. Expect rough edges, incomplete workflows, breaking changes between versions, and occasional buggy behavior. You are responsible for validating the package in your own environment, verifying repository boundaries before acting on them, and reviewing any output before using it in production or compliance-sensitive workflows.
+
+> [!IMPORTANT]
+> Officially supported operating systems today are macOS and Linux. Native Windows usage is not currently supported as a first-class path. If you are on Windows, use WSL2 or a Linux Docker container.
 
 Attention Repo helps humans and coding agents answer a simple question before editing code:
 
@@ -86,6 +94,69 @@ attention-repo mcp-config codex
 
 ---
 
+## Platform Support
+
+Attention Repo is currently intended for:
+
+- macOS
+- Linux
+
+Not currently first-class:
+
+- Windows native (`cmd.exe`, PowerShell, or Git Bash without a Linux layer)
+
+Windows users should prefer one of the Linux-backed paths below.
+
+### Windows with WSL2
+
+WSL2 is the recommended Windows setup.
+
+1. Install WSL2 with Ubuntu or another Linux distribution.
+2. Install Bun, Node.js 18+, Python 3, and Git inside the Linux environment.
+3. Clone or mount your repo inside the Linux filesystem when possible.
+4. Install the package:
+
+```bash
+bun install -g @summon-ai/attention-repo
+```
+
+5. Verify the install:
+
+```bash
+attention-repo status
+attention-repo mcp-config codex
+```
+
+### Windows with Docker
+
+Docker is a fallback path, not an officially supported host workflow.
+
+If you cannot use WSL2, run Attention Repo inside a Linux container that has Bun, Node.js, Python 3, and Git available. A minimal example is:
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  ubuntu:24.04 bash
+
+apt-get update
+apt-get install -y curl unzip git python3 ca-certificates
+curl -fsSL https://bun.sh/install | bash
+export PATH="$HOME/.bun/bin:$PATH"
+
+bun install -g @summon-ai/attention-repo
+attention-repo status
+attention-repo mcp-config codex
+```
+
+Notes:
+
+- container state is ephemeral unless you persist it deliberately
+- MCP usage still depends on mounting the target repository into the container
+- Docker is best treated as an experimental compatibility path
+
+---
+
 ## Connect MCP
 
 Attention Repo is designed to be consumed by an agent host over MCP.
@@ -109,13 +180,16 @@ The config shape is:
   "mcpServers": {
     "attention-repo": {
       "command": "attention-repo",
-      "args": ["mcp"],
-      "env": {
-        "ATTENTION_REPO_PATH": "."
-      }
+      "args": ["mcp"]
     }
   }
 }
+```
+
+To pin a specific repository path instead of using the adaptive default:
+
+```bash
+attention-repo mcp-config codex --repo /path/to/repo
 ```
 
 Or start the MCP server directly:
@@ -289,3 +363,17 @@ attention-repo repair
 ```
 
 Canonical version metadata lives in [version.json](./version.json).
+
+---
+
+## License and Usage Restrictions
+
+This project is released as `UNLICENSED`.
+
+All rights are reserved. No permission is granted to copy, reproduce, modify, redistribute, sublicense, publish, or use this material except with explicit written authorization from the creator.
+
+Source-visible access does not grant open-source rights.
+
+Created by River Ho @ NMC.
+
+Copyright 2026 River Ho @ NMC. All rights reserved.

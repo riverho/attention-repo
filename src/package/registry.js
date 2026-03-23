@@ -81,29 +81,39 @@ export function getToolMetadata(name) {
   return toolLookup.get(name) || null;
 }
 
-export function getDefaultMcpServerConfig(repoPath = ".") {
+export function getDefaultMcpServerConfig(repoPath) {
+  const serverConfig = {
+    command: MCP_COMMAND,
+    args: [...MCP_ARGS],
+  };
+
+  if (repoPath) {
+    serverConfig.env = {
+      ATTENTION_REPO_PATH: repoPath,
+    };
+  }
+
   return {
     mcpServers: {
-      [MCP_SERVER_NAME]: {
-        command: MCP_COMMAND,
-        args: [...MCP_ARGS],
-        env: {
-          ATTENTION_REPO_PATH: repoPath,
-        },
-      },
+      [MCP_SERVER_NAME]: serverConfig,
     },
   };
 }
 
-export function renderJsonMcpConfig(repoPath = ".") {
+export function renderJsonMcpConfig(repoPath) {
   return JSON.stringify(getDefaultMcpServerConfig(repoPath), null, 2);
 }
 
-export function renderCodexMcpConfig(repoPath = ".") {
-  return [
+export function renderCodexMcpConfig(repoPath) {
+  const lines = [
     `[mcp_servers."${MCP_SERVER_NAME}"]`,
     `command = "${MCP_COMMAND}"`,
     `args = ["${MCP_ARGS.join('", "')}"]`,
-    `env = { ATTENTION_REPO_PATH = "${repoPath}" }`,
-  ].join("\n");
+  ];
+
+  if (repoPath) {
+    lines.push(`env = { ATTENTION_REPO_PATH = "${repoPath}" }`);
+  }
+
+  return lines.join("\n");
 }
