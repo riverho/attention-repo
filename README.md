@@ -1,10 +1,10 @@
 # Attention Repo
 
-*Prevent repo-boundary drift in agent-driven development.*
+## Prevent repo-boundary drift in agent-driven development.
 
-Version: v0.4.1. 
-Update Date: 23 March 2026 
-Status: public package, source-visible implementation repo, not a full open-source release yet.
+<small>Version: v0.4.1 <br> 
+Update Date: 23 March 2026 <br>
+Status: public package only </small>
 
 > [!WARNING]
 > Attention Repo is currently under private testing. Expect rough edges, incomplete workflows, breaking changes between versions, and occasional buggy behavior. You are responsible for validating the package in your own environment, verifying repository boundaries before acting on them, and reviewing any output before using it in production or compliance-sensitive workflows.
