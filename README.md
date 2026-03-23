@@ -1,6 +1,6 @@
 # Attention Repo
 
-*Deployment intelligence for coding agents.*
+*Prevent repo-boundary drift in agent-driven development.*
 
 Version: v0.4.1. 
 Update Date: 23 March 2026 
