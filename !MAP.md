@@ -24,7 +24,7 @@ A lean, just-in-time attention repo (Lean v3.1) used as a Claude Code skill and 
 
 ## Operational Snapshot
 - **Version:** 0.4.0
-- **Last Sync:** 2026-03-23T05:48:03.775434+00:00
+- **Last Sync:** 2026-03-23T08:18:01.389056+00:00
 - **Description:** Wrap-up sync via attention CLI
 - **Status:** Operational
 
