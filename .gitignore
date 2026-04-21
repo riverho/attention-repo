@@ -20,6 +20,19 @@ docs/
 references/
 scripts/
 Tests/
+!scripts/
+!scripts/__init__.py
+!scripts/attention
+!scripts/attention-state.py
+!scripts/attention_state.py
+!scripts/jit-context.py
+!scripts/jit_context.py
+!scripts/resolve.py
+!scripts/version_info.py
+!tests/
+!tests/conftest.py
+!tests/test_*.py
+!tests/test_*.js
 
 NEXT_STEPS_UNTESTED.md
 __pycache__/
