@@ -1,6 +1,7 @@
 name: "E-ATTN-MCP-INDEX-01 pipeline"
 
-on: workflow_call:
+on:
+  workflow_call:
 
 jobs:
   validate:
