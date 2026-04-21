@@ -1,6 +1,6 @@
 {
   "name": "@summon-ai/attention-repo",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Attention Repo CLI and local MCP launcher",
   "license": "UNLICENSED",
   "type": "module",

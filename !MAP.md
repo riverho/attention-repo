@@ -23,9 +23,9 @@ A lean, just-in-time attention repo (Lean v3.1) used as a Claude Code skill and 
 - Does not manage secrets or credentials.
 
 ## Operational Snapshot
-- **Version:** 0.4.0
-- **Last Sync:** 2026-03-23T08:18:01.389056+00:00
-- **Description:** Wrap-up sync via attention CLI
+- **Version:** 0.5.0
+- **Last Sync:** 2026-04-21
+- **Description:** MCP server repo-agnostic refactor — repo_path param on all 11 tools, removes hardcoded ATTENTION_REPO_PATH binding
 - **Status:** Operational
 
 ## Entity Registry

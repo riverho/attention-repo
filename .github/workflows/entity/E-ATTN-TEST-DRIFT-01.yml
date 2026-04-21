@@ -1,0 +1,36 @@
+name: "E-ATTN-TEST-DRIFT-01 pipeline"
+
+on:
+  pull_request:
+    paths:
+      - "tests/test_drift_detection.py"
+      - '!MAP.md'
+  push:
+    branches: [main]
+    paths:
+      - "tests/test_drift_detection.py"
+      - '!MAP.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify entity file exists
+        run: |
+          test -f "tests/test_drift_detection.py" || {
+            echo "ERROR: E-ATTN-TEST-DRIFT-01 file tests/test_drift_detection.py not found"
+            exit 1
+          }
+
+      - name: Run Python tests
+        run: |
+          python3 -m unittest discover -s tests -p "test_*.py"
+
+      - name: Run Node tests
+        run: |
+          npm install --silent
+          node tests/test_package_contract.js
+          node tests/test_bun_cli.js
+          node tests/test_mcp_integration.js

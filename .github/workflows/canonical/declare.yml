@@ -1,0 +1,117 @@
+name: canonical-route-declare
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  declare-canonical-route:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Declare canonical route
+        id: route
+        run: |
+          set -e
+
+          SHA=$(git rev-parse --short HEAD)
+          FULL_SHA=$(git rev-parse HEAD)
+
+          # Extract active entities from !MAP.md and build route manifest
+          python3 << 'PYEOF'
+          import json
+          import sys
+          import subprocess
+          from pathlib import Path
+
+          ATTN_DIR = Path(".attention")
+          ATTN_DIR.mkdir(exist_ok=True)
+
+          # Read current !MAP.md
+          map_text = Path("!MAP.md").read_text()
+
+          # Parse entity registry
+          import re
+          start = map_text.index("<!-- ENTITY_REGISTRY_START -->\n") + len("<!-- ENTITY_REGISTRY_START -->\n")
+          end = map_text.index("\n<!-- ENTITY_REGISTRY_END -->")
+          registry = json.loads(map_text[start:end])
+
+          active = [e for e in registry["entities"] if e.get("status") == "active")]
+
+          # Get previous tag info if exists
+          prev_tag = None
+          prev_version = "0.0.0"
+          try:
+              prev_tag = subprocess.check_output(
+                  ["git", "describe", "--tags", "--abbrev=0", "--match", "route/v*"],
+                  stderr=subprocess.DEVNULL
+              ).decode().strip()
+              if prev_tag:
+                  prev_version = prev_tag.replace("route/v", "")
+          except subprocess.CalledProcessError:
+              pass
+
+          # Determine bump type
+          major, minor, patch = [int(x) for x in prev_version.split(".")]
+
+          # Bump minor by default (new push = new declaration)
+          # Major if any active entity has a different route vs last known
+          new_minor = minor + 1
+          new_version = f"{major}.{new_minor}.{patch}"
+
+          entities_out = []
+          for e in active:
+              entities_out.append({
+                  "id": e["id"],
+                  "canonical_route": e.get("endpoint", ""),
+                  "route_version": e.get("route_version", "1.0.0"),
+                  "status": e.get("status", "active"),
+                  "current_sha": FULL_SHA,
+                  "canonical_sha": e.get("canonical_sha", ""),
+              })
+
+          manifest = {
+              "version": new_version,
+              "declared_at": subprocess.check_output(
+                  ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"]
+              ).decode().strip(),
+              "git_tag": f"route/v{new_version}",
+              "git_sha": FULL_SHA,
+              "route_bump": "minor",
+              "entities": entities_out,
+          }
+
+          (ATTN_DIR / "canonical-route.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(f"::set-output name=version::{new_version}")
+          print(f"::set-output name=tag::route/v{new_version}")
+          print(f"::set-output name=sha::{SHA}")
+          print(f"::set-output name=entity_count::{len(active)}")
+          print(f"Manifest written: route/v{new_version}")
+          PYEOF
+
+      - name: Commit canonical route manifest
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .attention/canonical-route.json
+          git diff --cached --quiet || {
+            git commit -m "chore: declare canonical route ${{ steps.route.outputs.version }}"
+          }
+
+      - name: Tag canonical route version
+        run: |
+          git tag ${{ steps.route.outputs.tag }} ${{ steps.route.outputs.sha }}
+          git push origin ${{ steps.route.outputs.tag }}
+          echo "Tagged: ${{ steps.route.outputs.tag }} at ${{ steps.route.outputs.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push manifest commit
+        run: |
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

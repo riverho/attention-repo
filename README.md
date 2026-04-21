@@ -2,8 +2,8 @@
 
 ## Prevent repo-boundary drift in agent-driven development.
 
-<small>Version: v0.4.1 <br> 
-Update Date: 23 March 2026 <br>
+<small>Version: v0.5.0 <br> 
+Update Date: 21 April 2026 <br>
 Status: public package only </small>
 
 > [!WARNING]
@@ -51,7 +51,7 @@ Today, the package gives you:
 - a shared tool registry for agent hosts
 - a workflow for declaring scope, assembling context, validating changes, and finalizing audits
 
-The current MCP surface includes:
+The current MCP surface includes 11 tools (6 official + 5 legacy aliases):
 
 1. `attention_resolve_scope`
 2. `attention_get_constraints`
@@ -59,6 +59,11 @@ The current MCP surface includes:
 4. `attention_assemble_context`
 5. `attention_validate_changes`
 6. `attention_finalize_audit`
+7. `attention_freshness` _(legacy alias)_
+8. `attention_query` _(legacy alias)_
+9. `attention_declare_intent` _(deprecated)_
+10. `attention_assemble` _(deprecated)_
+11. `attention_finalize` _(deprecated)_
 
 You can inspect the locally shipped registry with:
 
@@ -192,6 +197,11 @@ To pin a specific repository path instead of using the adaptive default:
 attention-repo mcp-config codex --repo /path/to/repo
 ```
 
+The MCP server is now repo-agnostic. Each tool accepts an optional `repo_path`
+parameter that overrides the default `process.cwd()` fallback. No
+`ATTENTION_REPO_PATH` env binding required. Agents can target any repository
+per-call without reconfiguring the server.
+
 Or start the MCP server directly:
 
 ```bash
@@ -253,7 +263,8 @@ Example MCP call shape:
 {
   "name": "attention_resolve_scope",
   "arguments": {
-    "files": ["bin/attention-repo.js"]
+    "files": ["bin/attention-repo.js"],
+    "repo_path": "/path/to/target/repo"
   }
 }
 ```
