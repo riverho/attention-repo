@@ -1,0 +1,37 @@
+.gitignore
+.attention/
+attention-config.json
+node_modules/
+.claude/
+*.bun-build
+mcp-server/attention-repo-mcp
+
+# Track GitHub Actions workflows; ignore everything else under .github/
+!.github/
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/entity/
+!.github/workflows/canonical/
+!.github/workflows/ci.yml
+!.github/workflows/E-ATTN-*.yml
+
+_archive/
+docs/
+references/
+scripts/
+Tests/
+
+NEXT_STEPS_UNTESTED.md
+__pycache__/
+
+# Agent-specific files (may contain personal context)
+*AGENT*.md
+CLAUDE.md
+.mcp.json
+wrangler.toml
+
+# OS files
+.DS_Store
+
+# Research notes (internal, not for repo)
+# Stored in: ~/.openclaw/workspace/notes/attention-research/

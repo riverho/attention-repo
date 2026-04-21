@@ -1,0 +1,27 @@
+name: "E-ATTN-TEST-MCP-01 pipeline"
+
+on: workflow_call:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify entity file exists
+        run: |
+          test -f "tests/test_mcp_integration.js" || {
+            echo "ERROR: E-ATTN-TEST-MCP-01 file tests/test_mcp_integration.js not found"
+            exit 1
+          }
+
+      - name: Run Python tests
+        run: |
+          python3 -m unittest discover -s tests -p "test_*.py"
+
+      - name: Run Node tests
+        run: |
+          npm install --silent
+          node tests/test_package_contract.js
+          node tests/test_bun_cli.js
+          node tests/test_mcp_integration.js
