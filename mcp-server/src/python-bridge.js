@@ -106,8 +106,8 @@ export function execPython(args) {
 /**
  * Get the repo path - from env or default to workspace
  */
-export function getRepoPath() {
-  return process.env.ATTENTION_REPO_PATH || process.cwd();
+export function getRepoPath(repoPath) {
+  return repoPath || process.env.ATTENTION_REPO_PATH || process.cwd();
 }
 
 export default { execPython, getRepoPath, JIT_CONTEXT, SCRIPTS_DIR };

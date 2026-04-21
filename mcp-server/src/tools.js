@@ -174,8 +174,8 @@ async function declareIntentInternal({ repo, entities, pipeline, summary, requir
   };
 }
 
-export async function attentionResolveScope({ task = '', files = [] } = {}) {
-  const repo = getRepoPath();
+export async function attentionResolveScope({ repo_path, task = '', files = [] } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const registry = loadEntityRegistry(repo);
@@ -221,8 +221,8 @@ export async function attentionResolveScope({ task = '', files = [] } = {}) {
   }
 }
 
-export async function attentionGetConstraints({ entities = [] } = {}) {
-  const repo = getRepoPath();
+export async function attentionGetConstraints({ repo_path, entities = [] } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const registry = loadEntityRegistry(repo);
@@ -263,8 +263,8 @@ export async function attentionGetConstraints({ entities = [] } = {}) {
   }
 }
 
-export async function attentionDeclareScope({ entities = [], pipelines = [], pipeline, summary, requiresNewEntity = false } = {}) {
-  const repo = getRepoPath();
+export async function attentionDeclareScope({ repo_path, entities = [], pipelines = [], pipeline, summary, requiresNewEntity = false } = {}) {
+  const repo = getRepoPath(repo_path);
   const acceptedPipeline = pipeline || pipelines[0];
   if (!acceptedPipeline) {
     return {
@@ -293,8 +293,8 @@ export async function attentionDeclareScope({ entities = [], pipelines = [], pip
   };
 }
 
-export async function attentionAssembleContext({ declarationId, entities = [] } = {}) {
-  const repo = getRepoPath();
+export async function attentionAssembleContext({ repo_path, declarationId, entities = [] } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const declaration = getDeclaredScope(repo);
@@ -326,8 +326,8 @@ export async function attentionAssembleContext({ declarationId, entities = [] } 
   }
 }
 
-export async function attentionValidateChanges({ files = [] } = {}) {
-  const repo = getRepoPath();
+export async function attentionValidateChanges({ repo_path, files = [] } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const declaration = getDeclaredScope(repo);
@@ -366,8 +366,8 @@ export async function attentionValidateChanges({ files = [] } = {}) {
   }
 }
 
-export async function attentionFinalizeAudit({ testsCommand, testsResult, notes } = {}) {
-  const repo = getRepoPath();
+export async function attentionFinalizeAudit({ repo_path, testsCommand, testsResult, notes } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const validation = await attentionValidateChanges({});
@@ -412,8 +412,8 @@ export async function attentionFinalizeAudit({ testsCommand, testsResult, notes 
   }
 }
 
-export async function attentionQuery({ file }) {
-  const result = await attentionResolveScope({ files: [file] });
+export async function attentionQuery({ repo_path, file }) {
+  const result = await attentionResolveScope({ repo_path, files: [file] });
   if (result.error) {
     return result;
   }
@@ -424,7 +424,7 @@ export async function attentionQuery({ file }) {
     };
   }
 
-  const registry = loadEntityRegistry(getRepoPath());
+  const registry = loadEntityRegistry(getRepoPath(repo_path));
   const entity = registry.find((item) => item.id === result.scope.entities[0]);
   return {
     entity_id: entity.id,
@@ -436,9 +436,9 @@ export async function attentionQuery({ file }) {
   };
 }
 
-export async function attentionDeclareIntent({ entities, pipeline, summary, requiresNewEntity = false }) {
+export async function attentionDeclareIntent({ repo_path, entities, pipeline, summary, requiresNewEntity = false }) {
   return declareIntentInternal({
-    repo: getRepoPath(),
+    repo: getRepoPath(repo_path),
     entities,
     pipeline,
     summary,
@@ -446,8 +446,8 @@ export async function attentionDeclareIntent({ entities, pipeline, summary, requ
   });
 }
 
-export async function attentionFreshness() {
-  const repo = getRepoPath();
+export async function attentionFreshness({ repo_path } = {}) {
+  const repo = getRepoPath(repo_path);
 
   try {
     const entities = loadEntityRegistry(repo);
@@ -490,16 +490,16 @@ export async function attentionFreshness() {
   }
 }
 
-export async function attentionAssemble({ entities } = {}) {
-  const result = await attentionAssembleContext({ entities });
+export async function attentionAssemble({ repo_path, entities } = {}) {
+  const result = await attentionAssembleContext({ repo_path, entities });
   if (result.error) {
     return result;
   }
   return { context: result.prompt_summary };
 }
 
-export async function attentionFinalize({ testsCommand, testsResult, notes } = {}) {
-  return attentionFinalizeAudit({ testsCommand, testsResult, notes });
+export async function attentionFinalize({ repo_path, testsCommand, testsResult, notes } = {}) {
+  return attentionFinalizeAudit({ repo_path, testsCommand, testsResult, notes });
 }
 
 function defineTool(name, inputSchema) {
@@ -519,6 +519,7 @@ export const toolDefinitions = [
   defineTool('attention_resolve_scope', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       task: { type: 'string', description: 'Optional task description.' },
       files: { type: 'array', items: { type: 'string' }, description: 'Candidate files for scope resolution.' },
     },
@@ -526,12 +527,14 @@ export const toolDefinitions = [
   defineTool('attention_get_constraints', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       entities: { type: 'array', items: { type: 'string' }, description: 'Optional entity IDs to inspect.' },
     },
   }),
   defineTool('attention_declare_scope', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       entities: { type: 'array', items: { type: 'string' } },
       pipelines: { type: 'array', items: { type: 'string' } },
       pipeline: { type: 'string' },
@@ -543,6 +546,7 @@ export const toolDefinitions = [
   defineTool('attention_assemble_context', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       declarationId: { type: 'string' },
       entities: { type: 'array', items: { type: 'string' } },
     },
@@ -550,12 +554,14 @@ export const toolDefinitions = [
   defineTool('attention_validate_changes', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       files: { type: 'array', items: { type: 'string' } },
     },
   }),
   defineTool('attention_finalize_audit', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       testsCommand: { type: 'string' },
       testsResult: { type: 'string', enum: ['pass', 'fail', 'not_run'] },
       notes: { type: 'string' },
@@ -564,6 +570,7 @@ export const toolDefinitions = [
   defineTool('attention_query', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       file: { type: 'string' },
     },
     required: ['file'],
@@ -571,6 +578,7 @@ export const toolDefinitions = [
   defineTool('attention_declare_intent', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       entities: { type: 'array', items: { type: 'string' } },
       pipeline: { type: 'string' },
       summary: { type: 'string' },
@@ -580,17 +588,21 @@ export const toolDefinitions = [
   }),
   defineTool('attention_freshness', {
     type: 'object',
-    properties: {},
+    properties: {
+      repo_path: { type: 'string' },
+    },
   }),
   defineTool('attention_assemble', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       entities: { type: 'array', items: { type: 'string' } },
     },
   }),
   defineTool('attention_finalize', {
     type: 'object',
     properties: {
+      repo_path: { type: 'string' },
       testsCommand: { type: 'string' },
       testsResult: { type: 'string', enum: ['pass', 'fail', 'not_run'] },
       notes: { type: 'string' },
