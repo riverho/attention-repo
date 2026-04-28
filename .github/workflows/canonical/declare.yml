@@ -6,73 +6,65 @@ on:
 
 jobs:
   declare-canonical-route:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Declare canonical route
         id: route
         run: |
-          set -e
+          set -euo pipefail
 
           SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-          # Extract active entities from !MAP.md and build route manifest
           python3 << 'PYEOF'
           import json
-          import sys
+          import os
+          import re
           import subprocess
           from pathlib import Path
 
           ATTN_DIR = Path(".attention")
           ATTN_DIR.mkdir(exist_ok=True)
 
-          # Read current !MAP.md
-          map_text = Path("!MAP.md").read_text()
+          map_text = Path("!MAP.md").read_text(encoding="utf-8")
+          match = re.search(
+              r"<!-- ENTITY_REGISTRY_START -->\n([\s\S]*?)\n<!-- ENTITY_REGISTRY_END -->",
+              map_text,
+          )
+          if not match:
+              raise SystemExit("Missing entity registry markers in !MAP.md")
 
-          # Parse entity registry
-          import re
-          start = map_text.index("<!-- ENTITY_REGISTRY_START -->\n") + len("<!-- ENTITY_REGISTRY_START -->\n")
-          end = map_text.index("\n<!-- ENTITY_REGISTRY_END -->")
-          registry = json.loads(map_text[start:end])
+          registry = json.loads(match.group(1))
+          entities = registry.get("entities")
+          if not isinstance(entities, list):
+              raise SystemExit("Entity registry must contain an entities array")
 
-          active = [e for e in registry["entities"] if e.get("status") == "active")]
+          # Backwards-compatible: older maps did not stamp status; treat missing status as active.
+          active = [e for e in entities if e.get("status", "active") == "active"]
 
-          # Get previous tag info if exists
-          prev_tag = None
           prev_version = "0.0.0"
           try:
               prev_tag = subprocess.check_output(
                   ["git", "describe", "--tags", "--abbrev=0", "--match", "route/v*"],
-                  stderr=subprocess.DEVNULL
+                  stderr=subprocess.DEVNULL,
               ).decode().strip()
               if prev_tag:
                   prev_version = prev_tag.replace("route/v", "")
           except subprocess.CalledProcessError:
               pass
 
-          # Determine bump type
           major, minor, patch = [int(x) for x in prev_version.split(".")]
-
-          # Bump minor by default (new push = new declaration)
-          # Major if any active entity has a different route vs last known
-          new_minor = minor + 1
-          new_version = f"{major}.{new_minor}.{patch}"
-
-          entities_out = []
-          for e in active:
-              entities_out.append({
-                  "id": e["id"],
-                  "canonical_route": e.get("endpoint", ""),
-                  "route_version": e.get("route_version", "1.0.0"),
-                  "status": e.get("status", "active"),
-                  "current_sha": FULL_SHA,
-                  "canonical_sha": e.get("canonical_sha", ""),
-              })
+          new_version = f"{major}.{minor + 1}.{patch}"
+          full_sha = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
 
           manifest = {
               "version": new_version,
@@ -80,26 +72,39 @@ jobs:
                   ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"]
               ).decode().strip(),
               "git_tag": f"route/v{new_version}",
-              "git_sha": FULL_SHA,
+              "git_sha": full_sha,
               "route_bump": "minor",
-              "entities": entities_out,
+              "entities": [
+                  {
+                      "id": e["id"],
+                      "canonical_route": e.get("endpoint", ""),
+                      "route_version": e.get("route_version", "1.0.0"),
+                      "status": e.get("status", "active"),
+                      "current_sha": full_sha,
+                      "canonical_sha": e.get("canonical_sha", ""),
+                  }
+                  for e in active
+              ],
           }
 
           (ATTN_DIR / "canonical-route.json").write_text(json.dumps(manifest, indent=2) + "\n")
-          print(f"::set-output name=version::{new_version}")
-          print(f"::set-output name=tag::route/v{new_version}")
-          print(f"::set-output name=sha::{SHA}")
-          print(f"::set-output name=entity_count::{len(active)}")
-          print(f"Manifest written: route/v{new_version}")
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"version={new_version}\n")
+              output.write(f"tag=route/v{new_version}\n")
+              output.write(f"entity_count={len(active)}\n")
+
+          print(f"Manifest written: route/v{new_version} ({len(active)} active entities)")
           PYEOF
 
       - name: Commit canonical route manifest
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add .attention/canonical-route.json
+          git add -f .attention/canonical-route.json
           git diff --cached --quiet || {
-            git commit -m "chore: declare canonical route ${{ steps.route.outputs.version }}"
+            git commit -m "chore: declare canonical route ${{ steps.route.outputs.version }} [skip ci]"
           }
 
       - name: Tag canonical route version

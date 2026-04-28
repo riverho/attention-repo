@@ -6,7 +6,67 @@ on:
   pull_request:
 
 jobs:
-  # Shared test job — runs regardless of which entity changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.filter.outputs.cli }}
+      engine: ${{ steps.filter.outputs.engine }}
+      resolve: ${{ steps.filter.outputs.resolve }}
+      state: ${{ steps.filter.outputs.state }}
+      version: ${{ steps.filter.outputs.version }}
+      bin: ${{ steps.filter.outputs.bin }}
+      src-local: ${{ steps.filter.outputs.src-local }}
+      src-reg: ${{ steps.filter.outputs.src-reg }}
+      mcp-index: ${{ steps.filter.outputs.mcp-index }}
+      mcp-tools: ${{ steps.filter.outputs.mcp-tools }}
+      mcp-bridge: ${{ steps.filter.outputs.mcp-bridge }}
+      test-gate: ${{ steps.filter.outputs.test-gate }}
+      test-drift: ${{ steps.filter.outputs.test-drift }}
+      test-audit: ${{ steps.filter.outputs.test-audit }}
+      test-cli: ${{ steps.filter.outputs.test-cli }}
+      test-mcp: ${{ steps.filter.outputs.test-mcp }}
+      test-pkg: ${{ steps.filter.outputs.test-pkg }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cli:
+              - 'scripts/attention'
+            engine:
+              - 'scripts/jit-context.py'
+            resolve:
+              - 'scripts/resolve.py'
+            state:
+              - 'scripts/attention-state.py'
+            version:
+              - 'scripts/version_info.py'
+            bin:
+              - 'bin/**'
+            src-local:
+              - 'src/cli/**'
+            src-reg:
+              - 'src/package/**'
+            mcp-index:
+              - 'mcp-server/index.js'
+            mcp-tools:
+              - 'mcp-server/src/**'
+            mcp-bridge:
+              - 'mcp-server/src/python-bridge.js'
+            test-gate:
+              - 'tests/test_gate_effectiveness.py'
+            test-drift:
+              - 'tests/test_drift_detection.py'
+            test-audit:
+              - 'tests/test_audit_chain.py'
+            test-cli:
+              - 'tests/test_bun_cli.js'
+            test-mcp:
+              - 'tests/test_mcp_integration.js'
+            test-pkg:
+              - 'tests/test_package_contract.js'
+
   shared-tests:
     runs-on: ubuntu-latest
     steps:
@@ -19,95 +79,94 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p "test_*.py"
       - name: Install Node dependencies
-        run: npm install --silent
+        run: npm ci --silent
       - name: Run Node tests
         run: |
           node tests/test_package_contract.js
           node tests/test_bun_cli.js
           node tests/test_mcp_integration.js
 
-  # Per-entity validation — triggered only when that entity's file changes
   entity-cli:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-CLI-01.yml
-    if: contains(github.event.paths, 'scripts/attention')
+    if: needs.changes.outputs.cli == 'true'
 
   entity-engine:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-ENGINE-01.yml
-    if: contains(github.event.paths, 'scripts/jit-context.py')
+    if: needs.changes.outputs.engine == 'true'
 
   entity-resolve:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-RESOLVE-01.yml
-    if: contains(github.event.paths, 'scripts/resolve.py')
+    if: needs.changes.outputs.resolve == 'true'
 
   entity-state:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-STATE-01.yml
-    if: contains(github.event.paths, 'scripts/attention-state.py')
+    if: needs.changes.outputs.state == 'true'
 
   entity-version:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-VERSION-01.yml
-    if: contains(github.event.paths, 'scripts/version_info.py')
+    if: needs.changes.outputs.version == 'true'
 
   entity-bin:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-BIN-01.yml
-    if: contains(github.event.paths, 'bin/')
+    if: needs.changes.outputs.bin == 'true'
 
   entity-src-local:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-SRC-LOCAL-01.yml
-    if: contains(github.event.paths, 'src/cli/')
+    if: needs.changes.outputs.src-local == 'true'
 
   entity-src-reg:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-SRC-REG-01.yml
-    if: contains(github.event.paths, 'src/package/')
+    if: needs.changes.outputs.src-reg == 'true'
 
   entity-mcp-index:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-MCP-INDEX-01.yml
-    if: contains(github.event.paths, 'mcp-server/index.js')
+    if: needs.changes.outputs.mcp-index == 'true'
 
   entity-mcp-tools:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-MCP-TOOLS-01.yml
-    if: contains(github.event.paths, 'mcp-server/src/')
+    if: needs.changes.outputs.mcp-tools == 'true'
 
   entity-mcp-bridge:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-MCP-BRIDGE-01.yml
-    if: contains(github.event.paths, 'mcp-server/src/python-bridge.js')
+    if: needs.changes.outputs.mcp-bridge == 'true'
 
   entity-test-gate:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-GATE-01.yml
-    if: contains(github.event.paths, 'tests/test_gate_effectiveness.py')
+    if: needs.changes.outputs.test-gate == 'true'
 
   entity-test-drift:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-DRIFT-01.yml
-    if: contains(github.event.paths, 'tests/test_drift_detection.py')
+    if: needs.changes.outputs.test-drift == 'true'
 
   entity-test-audit:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-AUDIT-01.yml
-    if: contains(github.event.paths, 'tests/test_audit_chain.py')
+    if: needs.changes.outputs.test-audit == 'true'
 
   entity-test-cli:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-CLI-01.yml
-    if: contains(github.event.paths, 'tests/test_bun_cli.js')
+    if: needs.changes.outputs.test-cli == 'true'
 
   entity-test-mcp:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-MCP-01.yml
-    if: contains(github.event.paths, 'tests/test_mcp_integration.js')
+    if: needs.changes.outputs.test-mcp == 'true'
 
   entity-test-pkg:
-    needs: [shared-tests]
+    needs: [changes, shared-tests]
     uses: ./.github/workflows/E-ATTN-TEST-PKG-01.yml
-    if: contains(github.event.paths, 'tests/test_package_contract.js')
+    if: needs.changes.outputs.test-pkg == 'true'

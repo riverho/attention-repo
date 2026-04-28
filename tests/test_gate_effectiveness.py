@@ -1,127 +1,143 @@
 #!/usr/bin/env python3
-"""
-Gate Effectiveness Tests
-========================
-Can invalid declarations sneak through?
+"""Gate effectiveness regression tests."""
 
-Tests 01-11 (09b, 10, 11 are pending implementation)
-"""
-
-import unittest
 import tempfile
-import json
-import os
+import unittest
+from contextlib import contextmanager
 from pathlib import Path
-from scripts.jit_context import validate_declaration
+
+from scripts.jit_context import (
+    default_map_template,
+    ensure_templates,
+    extract_entity_registry,
+    validate_declaration,
+    write_entity_registry,
+)
+
+
+@contextmanager
+def make_repo(entities):
+    tmp = tempfile.TemporaryDirectory()
+    repo = Path(tmp.name)
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / "src").mkdir()
+    (repo / ".github" / "workflows" / "api.yml").write_text("name: api\n", encoding="utf-8")
+    (repo / ".github" / "workflows" / "worker.yml").write_text("name: worker\n", encoding="utf-8")
+    for entity in entities:
+        path = repo / entity["file_path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# entity\n", encoding="utf-8")
+    (repo / "!MAP.md").write_text(default_map_template(), encoding="utf-8")
+    write_entity_registry(repo / "!MAP.md", {"entities": entities})
+    try:
+        yield repo
+    finally:
+        tmp.cleanup()
+
+
+ENTITY_A = {
+    "id": "E-API-01",
+    "type": "Script",
+    "file_path": "src/api.py",
+    "ci_cd": ".github/workflows/api.yml",
+    "endpoint": "CLI: api",
+    "description": "API entity",
+}
+ENTITY_B = {
+    "id": "E-JOBS-01",
+    "type": "Script",
+    "file_path": "src/jobs.py",
+    "ci_cd": ".github/workflows/api.yml",
+    "endpoint": "CLI: jobs",
+    "description": "Jobs entity",
+}
+ENTITY_C = {
+    "id": "E-WORKER-01",
+    "type": "Script",
+    "file_path": "src/worker.py",
+    "ci_cd": ".github/workflows/worker.yml",
+    "endpoint": "CLI: worker",
+    "description": "Worker entity",
+}
 
 
 class TestColdStartInit(unittest.TestCase):
-    """Test 01: Verify template files created on first run"""
-    
     def test_init_creates_template_files(self):
-        """Empty repo should get !MAP.md and .attention/index.json"""
-        # TODO: Implement init command test
-        pass
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            ensure_templates(repo)
+            self.assertTrue((repo / "!MAP.md").exists())
+            self.assertTrue((repo / "CURRENT_TASK.md").exists())
+            self.assertEqual(extract_entity_registry((repo / "!MAP.md").read_text())["entities"], [])
 
 
 class TestEntityRegistryPopulation(unittest.TestCase):
-    """Test 02: Entity registry can be populated and parsed"""
-    
     def test_parse_entity_registry(self):
-        """3-entity registry parses correctly"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A, ENTITY_B, ENTITY_C]) as repo:
+            registry = extract_entity_registry((repo / "!MAP.md").read_text())
+            self.assertEqual([e["id"] for e in registry["entities"]], ["E-API-01", "E-JOBS-01", "E-WORKER-01"])
 
 
 class TestValidSingleEntity(unittest.TestCase):
-    """Test 03: Valid single-entity declaration succeeds"""
-    
     def test_single_entity_declaration(self):
-        """Valid entity + pipeline = success"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A]) as repo:
+            validate_declaration(repo, ["E-API-01"], ".github/workflows/api.yml", "Change API behavior with scoped validation", False, "code")
 
 
 class TestValidMultiEntitySamePipeline(unittest.TestCase):
-    """Test 04: Multi-entity same pipeline accepted"""
-    
     def test_multi_entity_same_pipeline(self):
-        """Two entities, same pipeline = success"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A, ENTITY_B]) as repo:
+            validate_declaration(repo, ["E-API-01", "E-JOBS-01"], ".github/workflows/api.yml", "Change both API entities through same pipeline", False, "code")
 
 
 class TestRejectNonExistentEntity(unittest.TestCase):
-    """Test 05: Reject unknown entity IDs"""
-    
     def test_unknown_entity_rejected(self):
-        """E-PAYMENTS-99 should be rejected"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A]) as repo:
+            with self.assertRaisesRegex(ValueError, "Unknown entity"):
+                validate_declaration(repo, ["E-PAYMENTS-99"], ".github/workflows/api.yml", "Change unknown payment entity safely through gate", False, "code")
 
 
 class TestRejectPipelineMismatch(unittest.TestCase):
-    """Test 06: Reject pipeline mismatch"""
-    
     def test_pipeline_mismatch(self):
-        """Entity->api, declare->notifications = reject"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A]) as repo:
+            with self.assertRaisesRegex(ValueError, "deployment_pipeline must match"):
+                validate_declaration(repo, ["E-API-01"], ".github/workflows/worker.yml", "Change API but wrong deployment pipeline", False, "code")
 
 
 class TestRejectNonExistentPipeline(unittest.TestCase):
-    """Test 07: Reject non-existent pipeline"""
-    
     def test_nonexistent_pipeline(self):
-        """nonexistent-pipeline.yml = reject"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A]) as repo:
+            with self.assertRaisesRegex(ValueError, "deployment_pipeline does not exist"):
+                validate_declaration(repo, ["E-API-01"], ".github/workflows/missing.yml", "Change API with missing pipeline file", False, "code")
 
 
 class TestRejectShortSummary(unittest.TestCase):
-    """Test 08: Reject short summary"""
-    
     def test_short_summary_rejected(self):
-        """Summary < 6 words = reject"""
-        # TODO: Implement
-        pass
+        with make_repo([ENTITY_A]) as repo:
+            with self.assertRaisesRegex(ValueError, "at least 6 words"):
+                validate_declaration(repo, ["E-API-01"], ".github/workflows/api.yml", "too short", False, "code")
 
 
 class TestRejectCrossPipelineConflict(unittest.TestCase):
-    """Test 09: EXP-09 - Cross-pipeline conflict (FIXED)"""
-    
     def test_cross_pipeline_rejected(self):
-        """Entity A->X, Entity B->Y, declare=X = REJECT"""
-        # This was the bug - now fixed
-        pass
-
-
-class TestAcceptMultiPipeline(unittest.TestCase):
-    """Test 09b: Accept when ALL pipelines declared (PENDING)"""
-    
-    def test_multi_pipeline_accepted(self):
-        """Entity A->X, Entity B->Y, declare=X,Y = accept"""
-        # TODO: Implement multi-pipeline support
-        pass
+        with make_repo([ENTITY_A, ENTITY_C]) as repo:
+            with self.assertRaisesRegex(ValueError, "deployment_pipeline must match"):
+                validate_declaration(repo, ["E-API-01", "E-WORKER-01"], ".github/workflows/api.yml", "Change conflicting entities across deployment pipelines", False, "code")
 
 
 class TestEntityNoPipeline(unittest.TestCase):
-    """Test 10: Entity with NO pipeline (PENDING)"""
-    
     def test_null_ci_cd_handling(self):
-        """Entity with null ci_cd = warn or reject"""
-        # TODO: Implement
-        pass
+        entity = {**ENTITY_A, "ci_cd": None}
+        with make_repo([entity]) as repo:
+            validate_declaration(repo, ["E-API-01"], ".github/workflows/api.yml", "Change entity without explicit pipeline mapping", False, "code")
 
 
-class TestEntityMultiplePipelines(unittest.TestCase):
-    """Test 11: Entity with MULTIPLE pipelines (PENDING)"""
-    
-    def test_entity_multi_pipeline(self):
-        """Entity maps to 2+ pipelines = warn"""
-        # TODO: Implement
-        pass
+class TestEntitySchema(unittest.TestCase):
+    def test_duplicate_entity_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Duplicate entity id"):
+            with make_repo([ENTITY_A, {**ENTITY_B, "id": "E-API-01"}]) as repo:
+                extract_entity_registry((repo / "!MAP.md").read_text())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

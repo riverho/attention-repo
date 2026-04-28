@@ -1,5 +1,10 @@
 .gitignore
+
+# Attention Repo working state (local per-repo control plane)
+\!MAP.md
+CURRENT_TASK.md
 .attention/
+.attention/canonical-route.json
 attention-config.json
 node_modules/
 .claude/
@@ -45,6 +50,15 @@ wrangler.toml
 
 # OS files
 .DS_Store
+
+# Local/internal notes and generated reports
+notes/
+tests/*.md
+
+# Local benchmark/migration helpers not shipped in the package
+scripts/generate_case_charts.py
+scripts/migrate-map.py
+scripts/summarize_case_results.py
 
 # Research notes (internal, not for repo)
 # Stored in: ~/.openclaw/workspace/notes/attention-research/

@@ -45,7 +45,7 @@ EXAMPLES:
 EOF
 }
 
-show_update_gate() {
+check_update_gate() {
   python3 - "$SCRIPT_DIR" <<'PY'
 import sys
 
@@ -57,8 +57,8 @@ from version_info import get_version
 gate = get_update_gate_status(get_version())
 if gate["required"]:
     print(gate["message"])
-    raise SystemExit(0)
-raise SystemExit(1)
+    raise SystemExit(1)
+raise SystemExit(0)
 PY
 }
 
@@ -74,9 +74,7 @@ case "$cmd" in
   bootstrap-update|init-config|-h|--help|help)
     ;;
   *)
-    if show_update_gate; then
-      exit 1
-    fi
+    check_update_gate
     ;;
 esac
 
@@ -170,7 +168,12 @@ PY
     fi
     repo="$1"
     shift
-    python3 "$SCRIPT_DIR/jit-context.py" map-freshness-check "$repo" "$@"
+    if [ $# -gt 0 ]; then
+      echo "Unknown wrap argument(s): $*"
+      echo "Usage: attention wrap <repo-path>"
+      exit 1
+    fi
+    python3 "$SCRIPT_DIR/jit-context.py" map-freshness-check "$repo"
     python3 "$SCRIPT_DIR/jit-context.py" finalize-change "$repo" --tests-result not_run --notes "Wrapped via attention CLI"
     python3 "$SCRIPT_DIR/jit-context.py" sync-state "$repo" --description "Wrap-up sync via attention CLI"
     python3 "$SCRIPT_DIR/jit-context.py" release-attention "$repo" --note "Released via attention CLI wrap flow"

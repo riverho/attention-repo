@@ -89,10 +89,9 @@ function getChangedFiles(repo) {
 
     return output
       .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.trim())
       .map((line) => {
-        const payload = line.slice(3);
+        const payload = line.slice(3).trim();
         if (payload.includes(' -> ')) {
           return payload.split(' -> ').pop();
         }
@@ -136,14 +135,14 @@ async function declareIntentInternal({ repo, entities, pipeline, summary, requir
     };
   }
 
-  const entityPipelines = registry
+  const entityPipelines = [...new Set(registry
     .filter((entity) => entities.includes(entity.id))
     .map((entity) => entity.ci_cd)
-    .filter(Boolean);
-  if (entityPipelines.length > 0 && !entityPipelines.includes(pipeline)) {
+    .filter(Boolean))];
+  if (entityPipelines.length > 0 && (entityPipelines.length > 1 || !entityPipelines.includes(pipeline))) {
     return {
       error: 'PIPELINE_MISMATCH',
-      message: `Pipeline must be one of: ${entityPipelines.join(', ')}`,
+      message: `Pipeline must match the selected entity mappings. Expected one of: ${entityPipelines.join(', ')}`,
     };
   }
 
@@ -160,7 +159,7 @@ async function declareIntentInternal({ repo, entities, pipeline, summary, requir
     requiresNewEntity ? 'true' : 'false',
     '--task-type',
     'code',
-  ]);
+  ], { allowRaw: true });
 
   const declaration = getDeclaredScope(repo);
   return {
@@ -308,7 +307,7 @@ export async function attentionAssembleContext({ repo_path, declarationId, entit
     const registry = loadEntityRegistry(repo);
     const entityIds = entities.length > 0 ? entities : declaration.affected_entities || [];
     const selected = registry.filter((entity) => entityIds.includes(entity.id));
-    const result = await execPython(['assemble', repo]);
+    const result = await execPython(['assemble', repo], { allowRaw: true });
     const promptSummary = result.raw ? result.raw.trim() : JSON.stringify(result, null, 2);
 
     return {
@@ -370,7 +369,7 @@ export async function attentionFinalizeAudit({ repo_path, testsCommand, testsRes
   const repo = getRepoPath(repo_path);
 
   try {
-    const validation = await attentionValidateChanges({});
+    const validation = await attentionValidateChanges({ repo_path: repo });
     const declaration = getDeclaredScope(repo);
     const registry = declaration ? loadEntityRegistry(repo) : [];
     const declaredEntities = declaration?.affected_entities || [];
@@ -379,7 +378,7 @@ export async function attentionFinalizeAudit({ repo_path, testsCommand, testsRes
     await execPython([
       'map-freshness-check',
       repo,
-    ]);
+    ], { allowRaw: true });
 
     await execPython([
       'finalize-change',
@@ -390,7 +389,7 @@ export async function attentionFinalizeAudit({ repo_path, testsCommand, testsRes
       testsResult || 'not_run',
       '--notes',
       notes || 'none',
-    ]);
+    ], { allowRaw: true });
 
     return {
       changed_files: validation.changed_files || [],
@@ -469,7 +468,7 @@ export async function attentionFreshness({ repo_path } = {}) {
     }
 
     try {
-      await execPython(['map-freshness-check', repo]);
+      await execPython(['map-freshness-check', repo], { allowRaw: true });
     } catch (freshErr) {
       // Keep filesystem validation usable even when the Python freshness gate rejects the current declaration state.
       details.push({ file: 'map-freshness-check', exists: false, warning: freshErr.message });

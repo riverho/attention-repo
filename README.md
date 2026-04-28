@@ -2,8 +2,8 @@
 
 ## Prevent repo-boundary drift in agent-driven development.
 
-<small>Version: v0.5.0 <br> 
-Update Date: 21 April 2026 <br>
+<small>Version: v0.5.1 <br> 
+Update Date: 28 April 2026 <br>
 Status: public package only </small>
 
 > [!WARNING]
@@ -71,6 +71,23 @@ You can inspect the locally shipped registry with:
 attention-repo tools
 attention-repo tools --json
 ```
+
+---
+
+## Change Notes
+
+### v0.5.1 — 28 April 2026
+
+Patch release focused on making the public package and MCP path safer to ship:
+
+- fixed GitHub Actions entity dispatch by replacing invalid `github.event.paths` checks with `dorny/paths-filter`
+- fixed canonical route declaration workflow output handling, ignored-manifest force-add, and `[skip ci]` loop prevention
+- tightened the MCP Python bridge so non-JSON command output fails unless raw output is explicitly allowed
+- fixed MCP finalize validation to use the caller's `repo_path`
+- fixed MCP git status parsing so changed paths keep their leading characters
+- added real regression coverage for gate validation, drift checks, audit finalization, package contract, and MCP integration behavior
+- added `package-lock.json` because CI now uses `npm ci`
+- refreshed local ignore rules for internal notes, generated reports, and unshipped helper scripts
 
 ---
 
@@ -207,6 +224,59 @@ Or start the MCP server directly:
 ```bash
 attention-repo mcp
 ```
+
+---
+
+## Local Config and Working Files
+
+Attention Repo has two kinds of files:
+
+- **package files** shipped by npm: CLI, MCP server, scripts, tests, README, and `attention-config.example.json`
+- **working files** generated inside each target repo: `!MAP.md`, `CURRENT_TASK.md`, and `.attention/`
+
+Working files are local control-plane state. They are intentionally suitable for `.gitignore` in projects that do not want repo-specific attention state committed.
+
+Generate the central config:
+
+```bash
+attention-repo init-config
+```
+
+By default this writes:
+
+```text
+~/.openclaw/attention-repo/config.json
+```
+
+A complete editable template is included in this package as:
+
+```text
+attention-config.example.json
+```
+
+Useful overrides for tests or non-default harnesses:
+
+```bash
+ATTENTION_REPO_STATE_ROOT=/custom/state attention-repo init-config --force
+ATTENTION_REPO_CONFIG_PATH=/custom/config.json attention-repo status
+ATTENTION_REPO_INDEX_PATH=/custom/index.json attention-repo reindex
+```
+
+Initialize local working files for a target repo:
+
+```bash
+attention-repo init /path/to/repo
+```
+
+This creates or repairs:
+
+```text
+/path/to/repo/!MAP.md
+/path/to/repo/CURRENT_TASK.md
+/path/to/repo/.attention/
+```
+
+If your project ignores these files, keep a repo-local `.mcp.json` or host MCP config that passes `repo_path` per call. The MCP server no longer requires a fixed `ATTENTION_REPO_PATH` binding.
 
 ---
 

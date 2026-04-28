@@ -1,36 +1,63 @@
 {
-  "$schema": "attention_repo-config-v1",
-  "skill_root": ".",
-  "project_registry": {
-    "my-project": {
-      "canonical_path": "/path/to/your/project",
-      "git_remote": "https://github.com/yourusername/your-project.git",
-      "source_strategy": "local_only",
-      "entity_resolution": {
-        "!MAP.md": "${canonical_path}/!MAP.md"
-      }
-    },
-    "another-project": {
-      "canonical_path": "/path/to/another/project",
-      "source_strategy": "local_only"
+  "$schema": "attention-repo-config-v3",
+  "openclaw": {
+    "config_path": "~/.openclaw/openclaw.json",
+    "inherit_workspace_root": true,
+    "inherit_default_model": true,
+    "inherit_available_models": true
+  },
+  "paths": {
+    "state_root": "~/.openclaw/attention-repo",
+    "default_scan_roots": [
+      "~/.openclaw/workspace/projects"
+    ],
+    "optional_scan_roots": {
+      "skills": "~/.openclaw/workspace/skills",
+      "plugins": "~/.openclaw/plugins"
     }
   },
-  "path_resolution": {
-    "order": ["canonical_path", "workspace_projects", "git_clone"],
-    "workspace_projects_root": "/path/to/your/workspace/projects",
-    "fallback_behavior": "fail_with_config_hint"
+  "discovery": {
+    "mode": "projects_only",
+    "max_depth": 1,
+    "candidate_markers": [
+      ".git",
+      "package.json",
+      "pyproject.toml",
+      "Cargo.toml",
+      "go.mod",
+      "README.md"
+    ],
+    "include_skills_only_when_requested": true,
+    "include_plugins_only_when_requested": true,
+    "menu_visible_scopes": [
+      "projects",
+      "skills"
+    ]
   },
-  "model_usage": {
-    "default": "minimax-portal/MiniMax-M2.5",
+  "models": {
+    "default": "auto",
+    "fallbacks": "openclaw",
+    "available": [],
     "tasks": {
-      "architectural_analysis": "kimi-coding/k2p5",
-      "code_generation": "minimax-portal/MiniMax-M2.5",
-      "documentation": "minimax-portal/MiniMax-M2.5"
+      "architectural_analysis": "auto",
+      "code_generation": "auto",
+      "documentation": "auto"
+    },
+    "resolved": {
+      "openclaw_default": "auto",
+      "openclaw_fallbacks": []
     }
   },
-  "validation": {
-    "require_canonical_path_exists": true,
-    "require_git_remote_for_clone": true,
-    "forbid_disk_wide_search": true
+  "projects": {
+    "my-project": {
+      "canonical_path": "/absolute/path/to/project",
+      "source": "projects",
+      "scope": "projects",
+      "managed": true,
+      "entity_resolution": {
+        "map_path": "/absolute/path/to/project/!MAP.md",
+        "task_path": "/absolute/path/to/project/CURRENT_TASK.md"
+      }
+    }
   }
 }

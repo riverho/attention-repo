@@ -14,18 +14,18 @@ const __dirname = dirname(__filename);
 const SCRIPTS_DIR = join(__dirname, '..', '..', 'scripts');
 const JIT_CONTEXT = join(SCRIPTS_DIR, 'jit-context.py');
 
-// Try multiple python paths
+// Prefer PATH for portability; explicit paths are fallbacks only.
 const PYTHON_PATHS = [
-  '/usr/local/bin/python3',
+  'python3',
   '/usr/bin/python3',
-  '/opt/homebrew/bin/python3',
-  'python3'
+  '/usr/local/bin/python3',
+  '/opt/homebrew/bin/python3'
 ];
 const DEBUG_ENABLED = process.env.ATTENTION_REPO_DEBUG === '1';
 
-function debugLog(message) {
+function debugLog(event, fields = {}) {
   if (DEBUG_ENABLED) {
-    console.error(message);
+    console.error(JSON.stringify({ component: 'python-bridge', event, ...fields }));
   }
 }
 
@@ -46,14 +46,16 @@ function findPython() {
 
 // Initialize python path once
 const pythonPath = findPython();
-debugLog(`[Python Bridge] Using Python: ${pythonPath}`);
+debugLog('python_selected', { pythonPath });
 
 /**
- * Execute a Python script with arguments and return parsed JSON output
+ * Execute a Python script with arguments and return parsed JSON output.
+ * Commands that intentionally emit prose must pass { allowRaw: true } explicitly.
  * @param {string[]} args - Arguments to pass to the Python script
- * @returns {Promise<object>} - Parsed JSON output
+ * @param {{allowRaw?: boolean}} options
+ * @returns {Promise<object>} - Parsed JSON output or { raw } when allowRaw is true
  */
-export function execPython(args) {
+export function execPython(args, options = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(pythonPath, [JIT_CONTEXT, ...args], {
       cwd: SCRIPTS_DIR,
@@ -76,25 +78,36 @@ export function execPython(args) {
     });
 
     proc.on('close', (code) => {
+      debugLog('python_exit', { code, args });
       if (code !== 0) {
         reject(new Error(`Python script exited with code ${code}: ${stderr || stdout || '(no output)'}`));
         return;
       }
-      
-      // Try to parse JSON output
+
+      const trimmed = stdout.trim();
       try {
-        // Find JSON in output (some commands print additional text)
-        const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          resolve(JSON.parse(jsonMatch[0]));
-        } else {
-          // For non-JSON output (like assemble), return the raw text
-          resolve({ raw: stdout });
-        }
-      } catch (e) {
-        // If not JSON, return the raw output
-        resolve({ raw: stdout });
+        resolve(JSON.parse(trimmed));
+        return;
+      } catch {
+        // Fall through to anchored object extraction for commands that log around JSON.
       }
+
+      const jsonMatch = trimmed.match(/^([\s\S]*?)(\{[\s\S]*\})([\s\S]*?)$/);
+      if (jsonMatch) {
+        try {
+          resolve(JSON.parse(jsonMatch[2]));
+          return;
+        } catch {
+          // Fall through to raw/error handling below.
+        }
+      }
+
+      if (options.allowRaw) {
+        resolve({ raw: stdout });
+        return;
+      }
+
+      reject(new Error(`Python command produced non-JSON output: ${stdout || '(no output)'}`));
     });
 
     proc.on('error', (err) => {

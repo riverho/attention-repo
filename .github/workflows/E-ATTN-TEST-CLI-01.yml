@@ -22,7 +22,7 @@ jobs:
 
       - name: Run Node tests
         run: |
-          npm install --silent
+          npm ci --silent
           node tests/test_package_contract.js
           node tests/test_bun_cli.js
           node tests/test_mcp_integration.js

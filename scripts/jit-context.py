@@ -42,7 +42,9 @@ try:
         summarize_current_task,
     )
     from version_info import get_version
-except ImportError as _e:
+except ModuleNotFoundError as _e:
+    if _e.name not in {"resolve", "scripts"}:
+        raise
     resolve_project_path = None
     load_config = None
     get_entity_resolution_path = None
@@ -152,17 +154,46 @@ def split_entities(raw: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def validate_entity_registry_schema(data: dict[str, Any]) -> None:
+    """Validate the minimal entity registry contract used by the engine."""
+    if not isinstance(data, dict) or "entities" not in data:
+        raise ValueError("Entity registry must be a JSON object with an 'entities' array")
+    if not isinstance(data["entities"], list):
+        raise ValueError("Entity registry field 'entities' must be an array")
+
+    seen: set[str] = set()
+    required = ("id", "type", "file_path", "ci_cd", "endpoint", "description")
+    for index, entity in enumerate(data["entities"]):
+        if not isinstance(entity, dict):
+            raise ValueError(f"Entity at index {index} must be an object")
+        missing = [field for field in required if field not in entity]
+        if missing:
+            raise ValueError(f"Entity at index {index} missing required field(s): {', '.join(missing)}")
+        entity_id = entity.get("id")
+        if not isinstance(entity_id, str) or not entity_id.strip():
+            raise ValueError(f"Entity at index {index} has invalid id")
+        if entity_id in seen:
+            raise ValueError(f"Duplicate entity id: {entity_id}")
+        seen.add(entity_id)
+        for field in ("type", "file_path", "ci_cd", "endpoint", "description"):
+            value = entity.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"Entity {entity_id} field {field} must be a string or null")
+        status = entity.get("status")
+        if status is not None and status not in {"staged", "active", "deprecated"}:
+            raise ValueError(f"Entity {entity_id} has invalid status: {status}")
+
+
 def extract_entity_registry(map_text: str) -> dict[str, Any]:
+    if "<<<<<<<" in map_text or "=======" in map_text or ">>>>>>>" in map_text:
+        raise ValueError("!MAP.md contains git conflict markers")
     pattern = re.compile(re.escape(ENTITY_START) + r"\n(.*?)\n" + re.escape(ENTITY_END), re.DOTALL)
     match = pattern.search(map_text)
     if not match:
         raise ValueError("Missing entity registry block in !MAP.md")
     payload = match.group(1).strip()
     data = json.loads(payload)
-    if not isinstance(data, dict) or "entities" not in data:
-        raise ValueError("Entity registry must be a JSON object with an 'entities' array")
-    if not isinstance(data["entities"], list):
-        raise ValueError("Entity registry field 'entities' must be an array")
+    validate_entity_registry_schema(data)
     return data
 
 
@@ -624,7 +655,10 @@ def cmd_register_new_entity(args: argparse.Namespace) -> None:
     ci_cd = args.ci_cd
     if not ci_cd:
         ci_cd = f".github/workflows/entity/{args.id}.yml"
-        generated = _generate_entity_pipeline(repo, args.id, args.file_path)
+        try:
+            generated = _generate_entity_pipeline(repo, args.id, args.file_path)
+        except OSError as exc:
+            raise RuntimeError(f"Failed to generate ci_cd pipeline for {args.id}: {exc}") from exc
         print(f"Auto-generated entity pipeline: {generated}")
 
     pipeline_path = repo / ci_cd
@@ -1093,6 +1127,8 @@ def cmd_init_workspace(args: argparse.Namespace) -> None:
 
 
 def cmd_repair(args: argparse.Namespace) -> None:
+    if load_config is None or resolve_project_path is None or reindex_registered_projects is None:
+        raise RuntimeError("Central config helpers are unavailable; cannot repair projects.")
     config = load_config()
     repaired = []
     for name, entry in config.get("projects", {}).items():
@@ -1114,6 +1150,8 @@ def cmd_repair(args: argparse.Namespace) -> None:
 
 
 def cmd_reindex(args: argparse.Namespace) -> None:
+    if load_config is None or reindex_registered_projects is None:
+        raise RuntimeError("Central config helpers are unavailable; cannot reindex projects.")
     config = load_config()
     index_path = reindex_registered_projects(config)
     print(f"Reindexed {len(config.get('projects', {}))} project(s): {index_path}")

@@ -53,6 +53,7 @@ function setupTestRepo() {
     "name: CI\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
   );
   writeFileSync(join(repoPath, "src", "main.py"), "# Main entry point\n");
+  writeFileSync(join(repoPath, ".gitignore"), ".attention/\n");
   writeFileSync(
     join(repoPath, "!MAP.md"),
     `# !MAP.md
@@ -77,6 +78,11 @@ Test repository
 <!-- ENTITY_REGISTRY_END -->
 `,
   );
+
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoPath, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Attention Test"], { cwd: repoPath, stdio: "ignore" });
+  execFileSync("git", ["add", "!MAP.md", ".gitignore", ".github/workflows/ci.yml", "src/main.py"], { cwd: repoPath, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath, stdio: "ignore" });
 
   return repoPath;
 }
@@ -201,6 +207,20 @@ async function main() {
       "attention_validate_changes",
     );
     assert(validation.status === "pass", "attention_validate_changes should pass for in-scope files");
+
+    writeFileSync(join(testRepo, "src", "main.py"), "# Main entry point changed\n");
+    const gitValidation = parseJsonToolResult(
+      await client.callTool({
+        name: "attention_validate_changes",
+        arguments: {},
+      }),
+      "attention_validate_changes",
+    );
+    assert(gitValidation.status === "pass", "attention_validate_changes should pass for git-detected in-scope files");
+    assert(
+      gitValidation.changed_files?.includes("src/main.py"),
+      `git-detected changed files should preserve leading path characters: ${JSON.stringify(gitValidation.changed_files)}`,
+    );
 
     const finalize = parseJsonToolResult(
       await client.callTool({

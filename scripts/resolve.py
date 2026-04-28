@@ -627,6 +627,14 @@ def resolve_project_name_from_path(repo: Path, config: dict[str, Any] | None = N
     return None
 
 
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def infer_project_scope(canonical_path: str | Path, config: dict[str, Any] | None = None) -> str:
     if config is None:
         config = load_config()
@@ -634,12 +642,12 @@ def infer_project_scope(canonical_path: str | Path, config: dict[str, Any] | Non
     repo = _expand_path(canonical_path)
     roots = config.get("paths", {})
     for root in roots.get("default_scan_roots", []):
-        if repo.parent == _expand_path(root):
+        if _is_relative_to(repo, _expand_path(root)):
             return "projects"
 
     optional_roots = roots.get("optional_scan_roots", {})
     for scope, raw_root in optional_roots.items():
-        if isinstance(raw_root, str) and repo.parent == _expand_path(raw_root):
+        if isinstance(raw_root, str) and _is_relative_to(repo, _expand_path(raw_root)):
             return scope
 
     return "discovered"

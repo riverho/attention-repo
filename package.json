@@ -1,16 +1,16 @@
 {
   "name": "@summon-ai/attention-repo",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Attention Repo CLI and local MCP launcher",
   "license": "UNLICENSED",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/riverho/attention-repo.git"
+    "url": "https://github.com/summon-ai/attention-repo.git"
   },
-  "homepage": "https://github.com/riverho/attention-repo",
+  "homepage": "https://github.com/summon-ai/attention-repo",
   "bugs": {
-    "url": "https://github.com/riverho/attention-repo/issues"
+    "url": "https://github.com/summon-ai/attention-repo/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -34,6 +34,7 @@
     "mcp-server/package.json",
     "mcp-server/src",
     "src/package/registry.js",
+    "attention-config.example.json",
     "scripts/__init__.py",
     "scripts/attention",
     "scripts/attention-state.py",
@@ -47,7 +48,6 @@
     "README.md"
   ],
   "engines": {
-    "bun": ">=1.0.0",
     "node": ">=18.0.0"
   }
 }
