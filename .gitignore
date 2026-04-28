@@ -1,12 +1,12 @@
-.gitignore
-
 # Attention Repo working state (local per-repo control plane)
 \!MAP.md
 CURRENT_TASK.md
 .attention/
 .attention/canonical-route.json
 attention-config.json
+# Dependency installs and local build artifacts; Bun/npm publish also excludes these.
 node_modules/
+**/node_modules/
 .claude/
 *.bun-build
 mcp-server/attention-repo-mcp

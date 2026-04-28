@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
@@ -36,6 +37,7 @@ assert(rootPackage.publishConfig?.access === "public", "root package must publis
 assert(rootPackage.dependencies?.["@modelcontextprotocol/sdk"], "root package must own MCP SDK dependency");
 assert(rootPackage.files.includes("src/package/registry.js"), "tool registry must ship in package files");
 assert(rootPackage.files.includes("attention-config.example.json"), "config template must ship in package files");
+assert(!rootPackage.files.some((entry) => entry.includes("node_modules")), "installed node_modules must never be in package files");
 assert(rootPackage.engines?.node, "package must declare a Node runtime");
 assert(!rootPackage.engines?.bun, "package must not require Bun when runtime is Node");
 assert(rootPackage.repository?.url?.includes("summon-ai/attention-repo"), "repository URL must point to the canonical organization");
@@ -54,6 +56,14 @@ const gitignore = readFileSync(join(projectRoot, ".gitignore"), "utf-8");
 assert(gitignore.includes("\\!MAP.md"), "working !MAP.md must be ignored locally");
 assert(gitignore.includes("CURRENT_TASK.md"), "working CURRENT_TASK.md must be ignored locally");
 assert(gitignore.includes(".attention/canonical-route.json"), "canonical route manifest must be ignored locally");
+assert(gitignore.includes("**/node_modules/"), "nested installed node_modules must be ignored locally");
+const ignoredNodeModules = execFileSync("git", ["check-ignore", "node_modules", "mcp-server/node_modules"], {
+  cwd: projectRoot,
+  encoding: "utf-8",
+}).trim().split("\n");
+assert(ignoredNodeModules.includes("node_modules"), "root node_modules must be ignored by git");
+assert(ignoredNodeModules.includes("mcp-server/node_modules"), "nested node_modules must be ignored by git");
+assert(!gitignore.split(/\r?\n/).includes(".gitignore"), ".gitignore must not ignore itself");
 const canonicalWorkflow = readFileSync(join(projectRoot, ".github", "workflows", "canonical", "declare.yml"), "utf-8");
 assert(canonicalWorkflow.includes("git add -f .attention/canonical-route.json"), "canonical workflow must force-add the ignored manifest");
 

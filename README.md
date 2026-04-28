@@ -2,7 +2,7 @@
 
 ## Prevent repo-boundary drift in agent-driven development.
 
-<small>Version: v0.5.1 <br> 
+<small>Version: v0.5.2 <br>
 Update Date: 28 April 2026 <br>
 Status: public package only </small>
 
@@ -75,6 +75,16 @@ attention-repo tools --json
 ---
 
 ## Change Notes
+
+### v0.5.2 — 28 April 2026
+
+Patch release focused on publish hygiene:
+
+- aligned git ignore rules with the Bun/npm publish payload
+- explicitly ignored nested installed dependencies such as `mcp-server/node_modules/`
+- removed the accidental `.gitignore` self-ignore rule
+- added package contract checks preventing installed `node_modules` from entering the package surface
+- verified Bun/npm dry-runs publish only the intended runtime files
 
 ### v0.5.1 — 28 April 2026
 
